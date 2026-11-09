@@ -55,7 +55,7 @@ function Splash() {
           <div className="luxe-tile col-span-2 flex items-center justify-between rounded-2xl p-5">
             <div>
               <Swords className="text-luxe-gold size-5" />
-              <div className="font-luxe mt-3 text-2xl font-semibold">Classic 1v1</div>
+              <div className="font-luxe lining-nums mt-3 text-2xl font-semibold">Classic 1v1</div>
               <div className="text-luxe-dim mt-1 text-xs">Duel a real opponent. Speed scores more.</div>
             </div>
             <Crown className="text-luxe-gold/25 size-16" strokeWidth={1} />
@@ -63,7 +63,7 @@ function Splash() {
           <div className="luxe-tile row-span-2 flex flex-col justify-between rounded-2xl p-5">
             <Zap className="text-luxe-gold size-5" />
             <div>
-              <div className="luxe-gold-text font-luxe text-5xl font-semibold">50</div>
+              <div className="luxe-gold-text font-luxe lining-nums text-5xl font-semibold">50</div>
               <div className="font-luxe text-xl font-semibold">Players Rush</div>
               <div className="text-luxe-dim mt-1 text-xs">Two wrong and you're out.</div>
             </div>
