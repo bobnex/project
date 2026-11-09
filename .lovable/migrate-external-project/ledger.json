@@ -1,0 +1,44 @@
+[
+ {
+  "capability": "code",
+  "source": "zip",
+  "outcome": "migrate",
+  "status": "done",
+  "next_action": "none"
+ },
+ {
+  "capability": "database (Firestore)",
+  "source": "firebase",
+  "outcome": "preserve (user chose Firebase)",
+  "status": "accepted",
+  "next_action": "none"
+ },
+ {
+  "capability": "auth (Firebase Auth)",
+  "source": "firebase",
+  "outcome": "preserve (user chose Firebase)",
+  "status": "accepted",
+  "next_action": "none"
+ },
+ {
+  "capability": "records",
+  "source": "firebase",
+  "outcome": "preserve (user chose Firebase)",
+  "status": "accepted",
+  "next_action": "none"
+ },
+ {
+  "capability": "voice signaling",
+  "source": "firestore",
+  "outcome": "preserve (user chose Firebase)",
+  "status": "accepted",
+  "next_action": "none"
+ },
+ {
+  "capability": "payments (manual bank transfer)",
+  "source": "code",
+  "outcome": "preserve",
+  "status": "done",
+  "next_action": "none"
+ }
+]

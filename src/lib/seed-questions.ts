@@ -1,0 +1,38 @@
+// Starter question bank an admin can load from the admin page.
+type Seed = { subject: string; topic: string; difficulty: "easy" | "medium" | "hard"; text: string; options: string[]; correctIndex: number };
+
+export const SEED_QUESTIONS: Seed[] = [
+  { subject: "Mathematics", topic: "Algebra", difficulty: "easy", text: "Solve for x: 3x + 7 = 22", options: ["3", "5", "7", "15"], correctIndex: 1 },
+  { subject: "Mathematics", topic: "Calculus", difficulty: "medium", text: "What is the derivative of x³?", options: ["x²", "3x²", "3x", "x³/3"], correctIndex: 1 },
+  { subject: "Mathematics", topic: "Geometry", difficulty: "easy", text: "The sum of interior angles of a triangle is:", options: ["90°", "180°", "270°", "360°"], correctIndex: 1 },
+  { subject: "Mathematics", topic: "Logarithms", difficulty: "medium", text: "log₁₀(1000) equals:", options: ["2", "3", "10", "100"], correctIndex: 1 },
+  { subject: "Mathematics", topic: "Calculus", difficulty: "medium", text: "∫ 2x dx equals:", options: ["x² + C", "2x² + C", "x + C", "2 + C"], correctIndex: 0 },
+  { subject: "Mathematics", topic: "Statistics", difficulty: "easy", text: "The median of 3, 9, 4, 7, 5 is:", options: ["4", "5", "7", "5.6"], correctIndex: 1 },
+  { subject: "Mathematics", topic: "Algebra", difficulty: "hard", text: "The roots of x² − 5x + 6 = 0 are:", options: ["1 and 6", "2 and 3", "−2 and −3", "3 and 4"], correctIndex: 1 },
+  { subject: "Physics", topic: "Mechanics", difficulty: "easy", text: "The SI unit of force is the:", options: ["Joule", "Watt", "Newton", "Pascal"], correctIndex: 2 },
+  { subject: "Physics", topic: "Mechanics", difficulty: "medium", text: "Acceleration due to gravity on Earth is approximately:", options: ["9.8 m/s²", "8.9 m/s²", "98 m/s²", "1.6 m/s²"], correctIndex: 0 },
+  { subject: "Physics", topic: "Electricity", difficulty: "easy", text: "Ohm's law states that V equals:", options: ["I/R", "IR", "R/I", "I²R"], correctIndex: 1 },
+  { subject: "Physics", topic: "Waves", difficulty: "medium", text: "The speed of light in vacuum is about:", options: ["3 × 10⁶ m/s", "3 × 10⁸ m/s", "3 × 10¹⁰ m/s", "340 m/s"], correctIndex: 1 },
+  { subject: "Physics", topic: "Energy", difficulty: "medium", text: "Kinetic energy is given by:", options: ["mgh", "½mv²", "mv", "Fd²"], correctIndex: 1 },
+  { subject: "Physics", topic: "Thermodynamics", difficulty: "hard", text: "Absolute zero on the Celsius scale is:", options: ["0 °C", "−100 °C", "−273.15 °C", "−459.67 °C"], correctIndex: 2 },
+  { subject: "Chemistry", topic: "Periodic Table", difficulty: "easy", text: "The chemical symbol for sodium is:", options: ["S", "So", "Na", "Sd"], correctIndex: 2 },
+  { subject: "Chemistry", topic: "Acids & Bases", difficulty: "easy", text: "A solution with pH 2 is:", options: ["Strongly acidic", "Neutral", "Weakly basic", "Strongly basic"], correctIndex: 0 },
+  { subject: "Chemistry", topic: "Atomic Structure", difficulty: "medium", text: "The atomic number of carbon is:", options: ["4", "6", "12", "14"], correctIndex: 1 },
+  { subject: "Chemistry", topic: "Gases", difficulty: "medium", text: "Avogadro's number is approximately:", options: ["6.02 × 10²³", "3.14 × 10²³", "9.81 × 10²³", "1.6 × 10⁻¹⁹"], correctIndex: 0 },
+  { subject: "Chemistry", topic: "Bonding", difficulty: "medium", text: "The bond in NaCl is mainly:", options: ["Covalent", "Ionic", "Metallic", "Hydrogen"], correctIndex: 1 },
+  { subject: "Chemistry", topic: "Organic", difficulty: "hard", text: "The general formula of alkanes is:", options: ["CₙH₂ₙ", "CₙH₂ₙ₊₂", "CₙH₂ₙ₋₂", "CₙHₙ"], correctIndex: 1 },
+  { subject: "Biology", topic: "Cells", difficulty: "easy", text: "The powerhouse of the cell is the:", options: ["Nucleus", "Ribosome", "Mitochondrion", "Golgi body"], correctIndex: 2 },
+  { subject: "Biology", topic: "Genetics", difficulty: "medium", text: "DNA bases pair as:", options: ["A–G, C–T", "A–T, C–G", "A–C, G–T", "A–U, C–G"], correctIndex: 1 },
+  { subject: "Biology", topic: "Plants", difficulty: "easy", text: "Photosynthesis mainly takes place in the:", options: ["Roots", "Chloroplasts", "Stem", "Flowers"], correctIndex: 1 },
+  { subject: "Biology", topic: "Human Body", difficulty: "medium", text: "Red blood cells carry oxygen using:", options: ["Insulin", "Haemoglobin", "Keratin", "Collagen"], correctIndex: 1 },
+  { subject: "Biology", topic: "Ecology", difficulty: "medium", text: "Organisms that make their own food are called:", options: ["Consumers", "Decomposers", "Producers", "Parasites"], correctIndex: 2 },
+  { subject: "English", topic: "Grammar", difficulty: "easy", text: "Choose the correct sentence:", options: ["She don't like it.", "She doesn't likes it.", "She doesn't like it.", "She not like it."], correctIndex: 2 },
+  { subject: "English", topic: "Vocabulary", difficulty: "medium", text: "The synonym of 'benevolent' is:", options: ["Kind", "Cruel", "Lazy", "Proud"], correctIndex: 0 },
+  { subject: "English", topic: "Vocabulary", difficulty: "medium", text: "The antonym of 'scarce' is:", options: ["Rare", "Plentiful", "Small", "Hidden"], correctIndex: 1 },
+  { subject: "English", topic: "Grammar", difficulty: "medium", text: "Identify the adverb: 'He ran quickly to school.'", options: ["He", "ran", "quickly", "school"], correctIndex: 2 },
+  { subject: "General", topic: "Computing", difficulty: "easy", text: "CPU stands for:", options: ["Central Processing Unit", "Computer Personal Unit", "Central Power Unit", "Core Processing Utility"], correctIndex: 0 },
+  { subject: "General", topic: "Computing", difficulty: "medium", text: "The binary number 1010 equals decimal:", options: ["8", "10", "12", "5"], correctIndex: 1 },
+  { subject: "General", topic: "Nigeria", difficulty: "easy", text: "The capital of Nigeria is:", options: ["Lagos", "Abuja", "Minna", "Kano"], correctIndex: 1 },
+  { subject: "General", topic: "Nigeria", difficulty: "medium", text: "Minna is the capital of which state?", options: ["Kwara", "Kogi", "Niger", "Kaduna"], correctIndex: 2 },
+];
+

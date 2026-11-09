@@ -10,33 +10,289 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PlayerRouteImport } from './routes/_player'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as SignupRouteImport } from './routes/signup'
+import { Route as PlayerAdminRouteImport } from './routes/_player.admin'
+import { Route as PlayerBattleRouteImport } from './routes/_player.battle'
+import { Route as PlayerCoursesRouteImport } from './routes/_player.courses'
+import { Route as PlayerFriendsRouteImport } from './routes/_player.friends'
+import { Route as PlayerGhostRouteImport } from './routes/_player.ghost'
+import { Route as PlayerHelpRouteImport } from './routes/_player.help'
+import { Route as PlayerHomeRouteImport } from './routes/_player.home'
+import { Route as PlayerNotificationsRouteImport } from './routes/_player.notifications'
+import { Route as PlayerProfileRouteImport } from './routes/_player.profile'
+import { Route as PlayerRankingsRouteImport } from './routes/_player.rankings'
+import { Route as PlayerSettingsRouteImport } from './routes/_player.settings'
+import { Route as PlayerCbtIndexRouteImport } from './routes/_player.cbt.index'
+import { Route as PlayerCbtCourseIdRouteImport } from './routes/_player.cbt.$courseId'
+import { Route as PlayerMatchMatchIdRouteImport } from './routes/_player.match.$matchId'
+import { Route as PlayerReviewMatchIdRouteImport } from './routes/_player.review.$matchId'
+import { Route as PlayerTournamentsIndexRouteImport } from './routes/_player.tournaments.index'
+import { Route as PlayerTournamentsTournamentIdRouteImport } from './routes/_player.tournaments.$tournamentId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlayerRoute = PlayerRouteImport.update({
+  id: '/_player',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlayerAdminRoute = PlayerAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerBattleRoute = PlayerBattleRouteImport.update({
+  id: '/battle',
+  path: '/battle',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerCoursesRoute = PlayerCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerFriendsRoute = PlayerFriendsRouteImport.update({
+  id: '/friends',
+  path: '/friends',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerGhostRoute = PlayerGhostRouteImport.update({
+  id: '/ghost',
+  path: '/ghost',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerHelpRoute = PlayerHelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerHomeRoute = PlayerHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerNotificationsRoute = PlayerNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerProfileRoute = PlayerProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerRankingsRoute = PlayerRankingsRouteImport.update({
+  id: '/rankings',
+  path: '/rankings',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerSettingsRoute = PlayerSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerCbtIndexRoute = PlayerCbtIndexRouteImport.update({
+  id: '/cbt/',
+  path: '/cbt/',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerCbtCourseIdRoute = PlayerCbtCourseIdRouteImport.update({
+  id: '/cbt/$courseId',
+  path: '/cbt/$courseId',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerMatchMatchIdRoute = PlayerMatchMatchIdRouteImport.update({
+  id: '/match/$matchId',
+  path: '/match/$matchId',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerReviewMatchIdRoute = PlayerReviewMatchIdRouteImport.update({
+  id: '/review/$matchId',
+  path: '/review/$matchId',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerTournamentsIndexRoute = PlayerTournamentsIndexRouteImport.update({
+  id: '/tournaments/',
+  path: '/tournaments/',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerTournamentsTournamentIdRoute =
+  PlayerTournamentsTournamentIdRouteImport.update({
+    id: '/tournaments/$tournamentId',
+    path: '/tournaments/$tournamentId',
+    getParentRoute: () => PlayerRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
+  '/admin': typeof PlayerAdminRoute
+  '/battle': typeof PlayerBattleRoute
+  '/courses': typeof PlayerCoursesRoute
+  '/friends': typeof PlayerFriendsRoute
+  '/ghost': typeof PlayerGhostRoute
+  '/help': typeof PlayerHelpRoute
+  '/home': typeof PlayerHomeRoute
+  '/notifications': typeof PlayerNotificationsRoute
+  '/profile': typeof PlayerProfileRoute
+  '/rankings': typeof PlayerRankingsRoute
+  '/settings': typeof PlayerSettingsRoute
+  '/cbt/$courseId': typeof PlayerCbtCourseIdRoute
+  '/match/$matchId': typeof PlayerMatchMatchIdRoute
+  '/review/$matchId': typeof PlayerReviewMatchIdRoute
+  '/tournaments/$tournamentId': typeof PlayerTournamentsTournamentIdRoute
+  '/cbt/': typeof PlayerCbtIndexRoute
+  '/tournaments/': typeof PlayerTournamentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
+  '/admin': typeof PlayerAdminRoute
+  '/battle': typeof PlayerBattleRoute
+  '/courses': typeof PlayerCoursesRoute
+  '/friends': typeof PlayerFriendsRoute
+  '/ghost': typeof PlayerGhostRoute
+  '/help': typeof PlayerHelpRoute
+  '/home': typeof PlayerHomeRoute
+  '/notifications': typeof PlayerNotificationsRoute
+  '/profile': typeof PlayerProfileRoute
+  '/rankings': typeof PlayerRankingsRoute
+  '/settings': typeof PlayerSettingsRoute
+  '/cbt/$courseId': typeof PlayerCbtCourseIdRoute
+  '/match/$matchId': typeof PlayerMatchMatchIdRoute
+  '/review/$matchId': typeof PlayerReviewMatchIdRoute
+  '/tournaments/$tournamentId': typeof PlayerTournamentsTournamentIdRoute
+  '/cbt': typeof PlayerCbtIndexRoute
+  '/tournaments': typeof PlayerTournamentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_player': typeof PlayerRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
+  '/_player/admin': typeof PlayerAdminRoute
+  '/_player/battle': typeof PlayerBattleRoute
+  '/_player/courses': typeof PlayerCoursesRoute
+  '/_player/friends': typeof PlayerFriendsRoute
+  '/_player/ghost': typeof PlayerGhostRoute
+  '/_player/help': typeof PlayerHelpRoute
+  '/_player/home': typeof PlayerHomeRoute
+  '/_player/notifications': typeof PlayerNotificationsRoute
+  '/_player/profile': typeof PlayerProfileRoute
+  '/_player/rankings': typeof PlayerRankingsRoute
+  '/_player/settings': typeof PlayerSettingsRoute
+  '/_player/cbt/$courseId': typeof PlayerCbtCourseIdRoute
+  '/_player/match/$matchId': typeof PlayerMatchMatchIdRoute
+  '/_player/review/$matchId': typeof PlayerReviewMatchIdRoute
+  '/_player/tournaments/$tournamentId': typeof PlayerTournamentsTournamentIdRoute
+  '/_player/cbt/': typeof PlayerCbtIndexRoute
+  '/_player/tournaments/': typeof PlayerTournamentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/forgot-password'
+    | '/login'
+    | '/signup'
+    | '/admin'
+    | '/battle'
+    | '/courses'
+    | '/friends'
+    | '/ghost'
+    | '/help'
+    | '/home'
+    | '/notifications'
+    | '/profile'
+    | '/rankings'
+    | '/settings'
+    | '/cbt/$courseId'
+    | '/match/$matchId'
+    | '/review/$matchId'
+    | '/tournaments/$tournamentId'
+    | '/cbt/'
+    | '/tournaments/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/forgot-password'
+    | '/login'
+    | '/signup'
+    | '/admin'
+    | '/battle'
+    | '/courses'
+    | '/friends'
+    | '/ghost'
+    | '/help'
+    | '/home'
+    | '/notifications'
+    | '/profile'
+    | '/rankings'
+    | '/settings'
+    | '/cbt/$courseId'
+    | '/match/$matchId'
+    | '/review/$matchId'
+    | '/tournaments/$tournamentId'
+    | '/cbt'
+    | '/tournaments'
+  id:
+    | '__root__'
+    | '/'
+    | '/_player'
+    | '/forgot-password'
+    | '/login'
+    | '/signup'
+    | '/_player/admin'
+    | '/_player/battle'
+    | '/_player/courses'
+    | '/_player/friends'
+    | '/_player/ghost'
+    | '/_player/help'
+    | '/_player/home'
+    | '/_player/notifications'
+    | '/_player/profile'
+    | '/_player/rankings'
+    | '/_player/settings'
+    | '/_player/cbt/$courseId'
+    | '/_player/match/$matchId'
+    | '/_player/review/$matchId'
+    | '/_player/tournaments/$tournamentId'
+    | '/_player/cbt/'
+    | '/_player/tournaments/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PlayerRoute: typeof PlayerRouteWithChildren
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  LoginRoute: typeof LoginRoute
+  SignupRoute: typeof SignupRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +304,205 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_player': {
+      id: '/_player'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PlayerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_player/admin': {
+      id: '/_player/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof PlayerAdminRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/battle': {
+      id: '/_player/battle'
+      path: '/battle'
+      fullPath: '/battle'
+      preLoaderRoute: typeof PlayerBattleRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/courses': {
+      id: '/_player/courses'
+      path: '/courses'
+      fullPath: '/courses'
+      preLoaderRoute: typeof PlayerCoursesRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/friends': {
+      id: '/_player/friends'
+      path: '/friends'
+      fullPath: '/friends'
+      preLoaderRoute: typeof PlayerFriendsRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/ghost': {
+      id: '/_player/ghost'
+      path: '/ghost'
+      fullPath: '/ghost'
+      preLoaderRoute: typeof PlayerGhostRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/help': {
+      id: '/_player/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof PlayerHelpRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/home': {
+      id: '/_player/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof PlayerHomeRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/notifications': {
+      id: '/_player/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof PlayerNotificationsRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/profile': {
+      id: '/_player/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof PlayerProfileRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/rankings': {
+      id: '/_player/rankings'
+      path: '/rankings'
+      fullPath: '/rankings'
+      preLoaderRoute: typeof PlayerRankingsRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/settings': {
+      id: '/_player/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof PlayerSettingsRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/cbt/': {
+      id: '/_player/cbt/'
+      path: '/cbt'
+      fullPath: '/cbt/'
+      preLoaderRoute: typeof PlayerCbtIndexRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/cbt/$courseId': {
+      id: '/_player/cbt/$courseId'
+      path: '/cbt/$courseId'
+      fullPath: '/cbt/$courseId'
+      preLoaderRoute: typeof PlayerCbtCourseIdRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/match/$matchId': {
+      id: '/_player/match/$matchId'
+      path: '/match/$matchId'
+      fullPath: '/match/$matchId'
+      preLoaderRoute: typeof PlayerMatchMatchIdRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/review/$matchId': {
+      id: '/_player/review/$matchId'
+      path: '/review/$matchId'
+      fullPath: '/review/$matchId'
+      preLoaderRoute: typeof PlayerReviewMatchIdRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/tournaments/': {
+      id: '/_player/tournaments/'
+      path: '/tournaments'
+      fullPath: '/tournaments/'
+      preLoaderRoute: typeof PlayerTournamentsIndexRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/tournaments/$tournamentId': {
+      id: '/_player/tournaments/$tournamentId'
+      path: '/tournaments/$tournamentId'
+      fullPath: '/tournaments/$tournamentId'
+      preLoaderRoute: typeof PlayerTournamentsTournamentIdRouteImport
+      parentRoute: typeof PlayerRoute
+    }
   }
 }
 
+interface PlayerRouteChildren {
+  PlayerAdminRoute: typeof PlayerAdminRoute
+  PlayerBattleRoute: typeof PlayerBattleRoute
+  PlayerCoursesRoute: typeof PlayerCoursesRoute
+  PlayerFriendsRoute: typeof PlayerFriendsRoute
+  PlayerGhostRoute: typeof PlayerGhostRoute
+  PlayerHelpRoute: typeof PlayerHelpRoute
+  PlayerHomeRoute: typeof PlayerHomeRoute
+  PlayerNotificationsRoute: typeof PlayerNotificationsRoute
+  PlayerProfileRoute: typeof PlayerProfileRoute
+  PlayerRankingsRoute: typeof PlayerRankingsRoute
+  PlayerSettingsRoute: typeof PlayerSettingsRoute
+  PlayerCbtCourseIdRoute: typeof PlayerCbtCourseIdRoute
+  PlayerMatchMatchIdRoute: typeof PlayerMatchMatchIdRoute
+  PlayerReviewMatchIdRoute: typeof PlayerReviewMatchIdRoute
+  PlayerTournamentsTournamentIdRoute: typeof PlayerTournamentsTournamentIdRoute
+  PlayerCbtIndexRoute: typeof PlayerCbtIndexRoute
+  PlayerTournamentsIndexRoute: typeof PlayerTournamentsIndexRoute
+}
+
+const PlayerRouteChildren: PlayerRouteChildren = {
+  PlayerAdminRoute: PlayerAdminRoute,
+  PlayerBattleRoute: PlayerBattleRoute,
+  PlayerCoursesRoute: PlayerCoursesRoute,
+  PlayerFriendsRoute: PlayerFriendsRoute,
+  PlayerGhostRoute: PlayerGhostRoute,
+  PlayerHelpRoute: PlayerHelpRoute,
+  PlayerHomeRoute: PlayerHomeRoute,
+  PlayerNotificationsRoute: PlayerNotificationsRoute,
+  PlayerProfileRoute: PlayerProfileRoute,
+  PlayerRankingsRoute: PlayerRankingsRoute,
+  PlayerSettingsRoute: PlayerSettingsRoute,
+  PlayerCbtCourseIdRoute: PlayerCbtCourseIdRoute,
+  PlayerMatchMatchIdRoute: PlayerMatchMatchIdRoute,
+  PlayerReviewMatchIdRoute: PlayerReviewMatchIdRoute,
+  PlayerTournamentsTournamentIdRoute: PlayerTournamentsTournamentIdRoute,
+  PlayerCbtIndexRoute: PlayerCbtIndexRoute,
+  PlayerTournamentsIndexRoute: PlayerTournamentsIndexRoute,
+}
+
+const PlayerRouteWithChildren =
+  PlayerRoute._addFileChildren(PlayerRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PlayerRoute: PlayerRouteWithChildren,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  LoginRoute: LoginRoute,
+  SignupRoute: SignupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
