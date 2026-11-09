@@ -22,6 +22,7 @@ import {
   BookOpen,
   Check,
   ClipboardList,
+  Clock,
   Crown,
   Database,
   FileJson,
@@ -590,13 +591,60 @@ function AppSettingsTab() {
         </div>
         <Switch checked={settings.ringEnabled} onCheckedChange={(v) => save({ ringEnabled: v })} />
       </div>
-      <div className="surface-card flex items-center justify-between gap-3 p-4">
-        <div>
-          <div className="font-semibold">Enable Ghost Rivals</div>
-          <div className="text-muted-foreground text-xs">After 25 seconds without an opponent, players can battle a replay of a real past player's answers.</div>
+
+      {/* Ghost Rivals Configuration */}
+      <div className="surface-card space-y-3 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold">Enable Ghost Rivals</div>
+            <div className="text-muted-foreground text-xs">
+              After {settings.ghostWaitSeconds ?? 25} seconds without an opponent, players can battle a replay of a real past player's answers.
+            </div>
+          </div>
+          <Switch checked={settings.ghostEnabled} onCheckedChange={(v) => save({ ghostEnabled: v })} />
         </div>
-        <Switch checked={settings.ghostEnabled} onCheckedChange={(v) => save({ ghostEnabled: v })} />
+
+        {settings.ghostEnabled && (
+          <div className="border-t border-border/50 pt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="ghost-wait" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Clock className="size-3.5" /> Ghost battle popup countdown
+              </Label>
+              <span className="text-sm font-extrabold tabular text-primary">
+                {settings.ghostWaitSeconds ?? 25}s
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[10, 15, 20, 25, 30, 45, 60].map((s) => (
+                <Button
+                  key={s}
+                  type="button"
+                  size="sm"
+                  variant={(settings.ghostWaitSeconds ?? 25) === s ? "default" : "outline"}
+                  className="h-8 px-3"
+                  onClick={() => save({ ghostWaitSeconds: s })}
+                >
+                  {s}s
+                </Button>
+              ))}
+            </div>
+            <Input
+              id="ghost-wait"
+              type="number"
+              min={5}
+              max={120}
+              value={settings.ghostWaitSeconds ?? 25}
+              onChange={(e) => {
+                const val = Math.max(5, Math.min(120, Number(e.target.value) || 25));
+                save({ ghostWaitSeconds: val });
+              }}
+              className="tabular"
+              placeholder="Custom seconds (5 - 120)"
+            />
+          </div>
+        )}
       </div>
+
       <div className="surface-card flex items-center justify-between gap-3 p-4">
         <div>
           <div className="font-semibold">Enable sound effects</div>
@@ -724,7 +772,6 @@ function CbtCourseRow({ s }: { s: Subject }) {
     setDeleting(true);
     try {
       const snap = await getDocs(query(collection(fb.db, "questions"), where("subject", "==", s.name)));
-      // Also catch questions saved with different spacing/casing of the same course name.
       const refs = snap.docs.map((d) => d.ref);
       for (let i = 0; i < refs.length; i += 450) {
         const b = writeBatch(fb.db);
