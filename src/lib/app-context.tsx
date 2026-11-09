@@ -82,6 +82,7 @@ export interface AppSettings {
   voiceChatEnabled: boolean;
   ringEnabled: boolean;
   ghostEnabled: boolean;
+  ghostWaitSeconds: number;
   sfxEnabled: boolean;
   payment: PaymentDetails;
   sponsors: Sponsor[];
@@ -97,6 +98,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   voiceChatEnabled: true,
   ringEnabled: true,
   ghostEnabled: true,
+  ghostWaitSeconds: 25,
   sfxEnabled: true,
   payment: DEFAULT_PAYMENT,
   sponsors: [],
@@ -136,7 +138,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const offSettings = onSnapshot(doc(fb.db, "settings", "app"), (s) => {
       const d = s.data() ?? {};
       setSfxGloballyEnabled(d.sfxEnabled !== false);
-      setSettings({ ...DEFAULT_SETTINGS, ...d, customThemes: normalizeCustomThemes(d.customThemes), payment: normalizePayment(d.payment), sponsors: normalizeSponsors(d.sponsors) });
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        ...d,
+        ghostWaitSeconds: typeof d.ghostWaitSeconds === "number" ? d.ghostWaitSeconds : 25,
+        customThemes: normalizeCustomThemes(d.customThemes),
+        payment: normalizePayment(d.payment),
+        sponsors: normalizeSponsors(d.sponsors),
+      });
     }, () => {});
     return () => { off(); offSettings(); };
   }, [fb]);
