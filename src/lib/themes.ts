@@ -21,6 +21,7 @@ export const THEMES: Theme[] = [
   { id: "sunset", name: "Sunset", blurb: "Amber, coral, plum", hue: 42, accentHue: 350, chroma: 0.17 },
   { id: "aurora", name: "Aurora", blurb: "Teal & violet sky", hue: 180, accentHue: 300, chroma: 0.13 },
   { id: "gold", name: "Gold", blurb: "Black & trophy gold", hue: 85, accentHue: 60, chroma: 0.14 },
+  { id: "goldy", name: "Goldy", blurb: "Noir & gold luxe serif", hue: 85, accentHue: 75, chroma: 0.12 },
   { id: "rose", name: "Rose", blurb: "Dusty rose mauve", hue: 0, accentHue: 330, chroma: 0.15 },
   { id: "crimson", name: "Crimson", blurb: "Scarlet & wine", hue: 18, accentHue: 5, chroma: 0.23 },
   { id: "ocean", name: "Ocean", blurb: "Turquoise depths", hue: 215, accentHue: 185, chroma: 0.13 },
