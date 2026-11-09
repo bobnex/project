@@ -63,7 +63,7 @@ export function Battle() {
   }
 
   async function handleCreateConfiguredRoom() {
-    if (!configureMode) return;
+    if (!configureMode || !fb || !user || !profile) return;
     await run("custom-room", async () => {
       const r = await createRoom(fb.db, user.uid, profile.username, configureMode, roomCourses, {
         secondsPerQuestion: roomSec,
