@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Clock, DoorOpen, HelpCircle, KeyRound, Loader2, Lock, Plus, Search, Settings2, Shield, Sparkles, Swords, Users, Zap } from "lucide-react";
+import { Bell, Clock, DoorOpen, Ghost, HelpCircle, KeyRound, Loader2, Lock, Plus, Search, Settings2, Shield, Sparkles, Swords, Users, Zap } from "lucide-react";
 import { CourseMultiSelect } from "@/components/game/course-multiselect";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { useApp } from "@/lib/app-context";
 import { createRoom, findClassicMatch, joinRoomByCode, joinRush } from "@/lib/engine";
 import { useSubjects } from "@/lib/subjects";
 import { pageMeta } from "@/lib/meta";
-import { GHOST_WAIT_MS } from "@/lib/ghost-rules";
+import { ringEveryone } from "@/components/game/RingListener";
 import { play } from "@/lib/sfx";
 import type { Mode } from "@/lib/game-rules";
 
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_player/battle")({
 });
 
 export function Battle() {
-  const { fb, user, profile } = useApp();
+  const { fb, user, profile, settings } = useApp();
   const navigate = useNavigate();
   const [courses, setCourses] = useState<string[]>([]);
   const subjects = useSubjects(fb?.db);
@@ -41,10 +41,11 @@ export function Battle() {
   useEffect(() => () => { cancelRef.current?.(); }, []);
   useEffect(() => {
     if (!searching) { setWaited(false); setGhostReady(false); return; }
+    const ghostWaitMs = (settings.ghostWaitSeconds ?? 25) * 1000;
     const t = setTimeout(() => setWaited(true), 10_000);
-    const g = setTimeout(() => setGhostReady(true), GHOST_WAIT_MS);
+    const g = setTimeout(() => setGhostReady(true), ghostWaitMs);
     return () => { clearTimeout(t); clearTimeout(g); };
-  }, [searching]);
+  }, [searching, settings.ghostWaitSeconds]);
 
   if (!fb || !user || !profile) return null;
   const locked = profile.status !== "approved";
@@ -174,6 +175,79 @@ export function Battle() {
           </Button>
         </form>
       </div>
+
+      {/* Searching Matchmaking Dialog */}
+      <Dialog open={searching} onOpenChange={(open) => !open && cancelSearch()}>
+        <DialogContent className="max-w-sm text-center">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-center gap-2">
+              <Search className="text-primary size-5 animate-pulse" />
+              Finding Opponent…
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-5 space-y-4">
+            <div className="relative mx-auto flex size-20 items-center justify-center">
+              <div className="border-primary/20 absolute inset-0 animate-ping rounded-full border-2" />
+              <div className="bg-primary/10 grid size-16 place-items-center rounded-full">
+                <Swords className="text-primary size-8 animate-bounce" />
+              </div>
+            </div>
+
+            <p className="text-muted-foreground text-sm">
+              Scanning for active players in {courses.length ? `${courses.length} selected course(s)` : "all courses"}…
+            </p>
+
+            {/* Ring everyone online option (after 10s) */}
+            {waited && settings.ringEnabled && (
+              <div className="surface-card p-3 space-y-2 animate-in fade-in">
+                <p className="text-xs text-muted-foreground">Waiting for a duel?</p>
+                <Button
+                  variant="hero"
+                  size="sm"
+                  className="w-full"
+                  disabled={busy === "ring"}
+                  onClick={() => run("ring", async () => {
+                    await ringEveryone(fb.db, user.uid, profile.username, courses);
+                    toast.success("Rang all players online! Waiting for someone to accept.");
+                  })}
+                >
+                  <Bell className="size-4 mr-1.5" /> Ring everyone online
+                </Button>
+              </div>
+            )}
+
+            {/* Ghost Rival popup option (after admin-configured ghostWaitSeconds) */}
+            {ghostReady && settings.ghostEnabled && (
+              <div className="surface-card p-3 space-y-2 animate-in fade-in border-primary/30">
+                <div className="flex items-center justify-center gap-1.5 font-bold text-sm">
+                  <Ghost className="text-primary size-4" /> Ghost Rival ready
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Battle the recorded answers of a real past player right now!
+                </p>
+                <Button
+                  variant="hero"
+                  size="sm"
+                  className="w-full"
+                  onClick={async () => {
+                    await cancelSearch();
+                    navigate({ to: "/ghost" });
+                  }}
+                >
+                  <Ghost className="size-4 mr-1.5" /> Battle a Ghost Rival
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="sm:justify-center">
+            <Button variant="ghost" onClick={cancelSearch}>
+              Cancel search
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Configure Private Room Dialog */}
       <Dialog open={!!configureMode} onOpenChange={(open) => !open && setConfigureMode(null)}>
