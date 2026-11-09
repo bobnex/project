@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Award, Bell, ClipboardList, Coins, House, Settings, ShieldCheck, Swords, Trophy, UserRound, Users } from "lucide-react";
+import { Award, Bell, ClipboardList, Coins, House, Settings, ShieldCheck, Swords, Trophy, UserRound, Users, HelpCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -17,6 +17,7 @@ export const NAV = [
   { to: "/rankings", label: "Rankings", icon: Trophy },
   { to: "/friends", label: "Friends", icon: Users },
   { to: "/profile", label: "Profile", icon: UserRound },
+  { to: "/help", label: "Help", icon: HelpCircle },
 ] as const;
 
 const TITLES: Record<string, string> = {
@@ -31,6 +32,7 @@ const TITLES: Record<string, string> = {
   "/settings": "Settings",
   "/notifications": "Notifications",
   "/admin": "Admin Centre",
+  "/help": "Help",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {

@@ -19,4 +19,13 @@ describe("App routing", () => {
   it("keeps the course directory out of the main navigation", () => {
     expect(NAV.map((n) => n.to)).not.toContain("/courses");
   });
+
+  it("puts the help page in the bottom navigation", () => {
+    const help = NAV.find((n) => n.to === "/help");
+    expect(help?.label).toBe("Help");
+
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+    const matches = router.matchRoutes("/help");
+    expect(matches.at(-1)?.routeId).toBe("/_player/help");
+  });
 });
