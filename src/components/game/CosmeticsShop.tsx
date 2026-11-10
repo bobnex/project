@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Coins, Copy, Eye, Gem, Loader2, Search, ShoppingBag, Sparkles, Wallet, X } from "lucide-react";
+import { Check, Coins, Copy, Crown, Eye, Gem, Loader2, Search, ShoppingBag, Sparkles, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,11 +62,11 @@ export function CosmeticsShop() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-accent flex items-center gap-2 text-xs font-semibold uppercase">
-              <Gem className="size-4" /> The Juvora collection (150 Items)
+              <Gem className="size-4" /> The Juvora collection (160 Items)
             </p>
             <h2 className="mt-2 text-3xl font-bold">Make your mark.</h2>
             <p className="text-muted-foreground mt-2 text-sm">
-              Frames, badges, effects, and prestigious titles. Pure cosmetic signature.
+              Frames, badges, effects, profile card themes, and prestigious titles. Pure cosmetic signature.
             </p>
           </div>
           <div className="border-warning/30 bg-warning/10 flex items-center gap-3 rounded-lg border px-4 py-3">
@@ -95,7 +95,7 @@ export function CosmeticsShop() {
         <TabsContent value="shop" className="space-y-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-1" role="group" aria-label="Cosmetic category">
-              {(["all", "frame", "badge", "effect", "title"] as const).map(c => (
+              {(["all", "frame", "badge", "effect", "title", "card"] as const).map(c => (
                 <Button
                   key={c}
                   size="sm"
@@ -103,7 +103,7 @@ export function CosmeticsShop() {
                   onClick={() => setCategory(c)}
                   aria-pressed={category === c}
                 >
-                  {c === "all" ? "All (150)" : `${c[0].toUpperCase()}${c.slice(1)}s`}
+                  {c === "all" ? "All" : c === "card" ? "Card Themes" : `${c[0].toUpperCase()}${c.slice(1)}s`}
                 </Button>
               ))}
             </div>
@@ -127,17 +127,27 @@ export function CosmeticsShop() {
                   key={item.id}
                   className="surface-card cosmetic-item flex flex-col justify-between rounded-xl border p-4 text-center transition-all"
                 >
-                  <div className="flex flex-col items-center">
-                    <CosmeticAvatar
-                      name={name}
-                      wallet={{ ...EMPTY_WALLET, equipped: { [item.slot]: item.id } }}
-                      size={48}
-                      showTitle={item.slot === "title"}
-                    />
+                  <div className="flex flex-col items-center w-full">
+                    {item.slot === "card" ? (
+                      <div className={cn("w-full h-24 rounded-xl p-2.5 flex flex-col items-center justify-center border shadow-sm transition-all", `cosmetic-${item.style}`)}>
+                        <CosmeticAvatar name={name} wallet={wallet} size={32} />
+                        <span className="text-xs font-bold mt-1.5 line-clamp-1">{name}</span>
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <Crown className="size-3 text-warning" /> Level {profile?.level ?? 1}
+                        </span>
+                      </div>
+                    ) : (
+                      <CosmeticAvatar
+                        name={name}
+                        wallet={{ ...EMPTY_WALLET, equipped: { [item.slot]: item.id } }}
+                        size={48}
+                        showTitle={item.slot === "title"}
+                      />
+                    )}
                     <h4 className="mt-3 text-sm font-bold line-clamp-1">{item.name}</h4>
-                    <p className="text-muted-foreground text-xs uppercase">{item.slot}</p>
+                    <p className="text-muted-foreground text-xs uppercase">{item.slot === "card" ? "Card Theme" : item.slot}</p>
                   </div>
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 space-y-2 w-full">
                     <div className="text-warning flex items-center justify-center gap-1 font-semibold text-xs">
                       <Coins className="size-3.5" /> {item.price.toLocaleString()}
                     </div>
@@ -179,13 +189,14 @@ export function CosmeticsShop() {
             )}
           </div>
 
-          {(["frame", "badge", "effect", "title"] as const).map(slot => {
+          {(["frame", "badge", "effect", "title", "card"] as const).map(slot => {
             const ownedInSlot = settings.cosmetics.filter(c => c.slot === slot && ownedList.includes(c.id));
             const activeEquippedId = equippedMap[slot];
+            const slotTitle = slot === "card" ? "Profile Card Themes" : `${slot}s`;
             return (
               <section key={slot} className="space-y-3">
                 <div className="flex items-center justify-between border-b pb-2">
-                  <h3 className="text-sm font-bold capitalize">{slot}s</h3>
+                  <h3 className="text-sm font-bold capitalize">{slotTitle}</h3>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -193,10 +204,10 @@ export function CosmeticsShop() {
                     onClick={() =>
                       fb &&
                       user &&
-                      action(() => equipCosmetic(fb.db, user.uid, slot, undefined), `${slot} unequipped.`)
+                      action(() => equipCosmetic(fb.db, user.uid, slot, undefined), `${slot === "card" ? "Card theme" : slot} unequipped.`)
                     }
                   >
-                    <X className="size-3.5 mr-1" /> Unequip {slot}
+                    <X className="size-3.5 mr-1" /> Unequip {slot === "card" ? "theme" : slot}
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -210,12 +221,19 @@ export function CosmeticsShop() {
                           isEquipped && "border-primary shadow-glow"
                         )}
                       >
-                        <CosmeticAvatar
-                          name={name}
-                          wallet={{ ...EMPTY_WALLET, equipped: { [c.slot]: c.id } }}
-                          size={44}
-                          showTitle={c.slot === "title"}
-                        />
+                        {c.slot === "card" ? (
+                          <div className={cn("w-full h-20 rounded-lg p-2 flex flex-col items-center justify-center border mb-1", `cosmetic-${c.style}`)}>
+                            <CosmeticAvatar name={name} wallet={wallet} size={28} />
+                            <span className="text-[11px] font-bold mt-1 line-clamp-1">{name}</span>
+                          </div>
+                        ) : (
+                          <CosmeticAvatar
+                            name={name}
+                            wallet={{ ...EMPTY_WALLET, equipped: { [c.slot]: c.id } }}
+                            size={44}
+                            showTitle={c.slot === "title"}
+                          />
+                        )}
                         <span className="font-semibold text-xs mt-2 line-clamp-1">{c.name}</span>
                         <Button
                           size="sm"
@@ -238,7 +256,7 @@ export function CosmeticsShop() {
                   })}
                 </div>
                 {ownedInSlot.length === 0 && (
-                  <p className="text-muted-foreground text-xs">No {slot}s unlocked yet.</p>
+                  <p className="text-muted-foreground text-xs">No {slot === "card" ? "card themes" : `${slot}s`} unlocked yet.</p>
                 )}
               </section>
             );
@@ -305,11 +323,22 @@ export function CosmeticsShop() {
 
       {/* Look / Preview Dialog */}
       <Dialog open={!!preview} onOpenChange={open => !open && setPreview(null)}>
-        <DialogContent className="max-w-xs text-center">
+        <DialogContent className="max-w-sm text-center">
           <DialogTitle className="text-lg font-bold">{preview?.name}</DialogTitle>
-          <DialogDescription className="text-xs uppercase">{preview?.slot}</DialogDescription>
-          <div className="py-6 flex justify-center">
-            <CosmeticAvatar name={name} wallet={previewWallet} size={84} showTitle={true} />
+          <DialogDescription className="text-xs uppercase">{preview?.slot === "card" ? "Profile Card Theme" : preview?.slot}</DialogDescription>
+          <div className="py-6 flex justify-center w-full">
+            {preview?.slot === "card" ? (
+              <div className={cn("hero-card w-full flex flex-col items-center p-6 text-center rounded-2xl transition-all", `cosmetic-${preview.style}`)}>
+                <CosmeticAvatar name={name} wallet={wallet} size={72} showTitle={true} />
+                <h3 className="mt-3 text-xl font-extrabold">{name}</h3>
+                <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-xs">
+                  <Crown className="text-warning size-3.5" /> Level {profile?.level ?? 1}
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">Previewing profile card background & glow</div>
+              </div>
+            ) : (
+              <CosmeticAvatar name={name} wallet={previewWallet} size={84} showTitle={true} />
+            )}
           </div>
           <Button onClick={() => setPreview(null)}>Close preview</Button>
         </DialogContent>
