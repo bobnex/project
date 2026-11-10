@@ -1,4 +1,4 @@
-export type CosmeticSlot = "frame" | "badge" | "effect" | "title";
+export type CosmeticSlot = "frame" | "badge" | "effect" | "title" | "card";
 
 export interface Cosmetic {
   id: string;
@@ -210,7 +210,20 @@ const TITLES: Cosmetic[] = [
   { id: "title-immortal", name: "Immortal", slot: "title", style: "gold", price: 800, active: true },
 ];
 
-export const DEFAULT_COSMETICS: Cosmetic[] = [...FRAMES, ...BADGES, ...EFFECTS, ...TITLES];
+const CARD_THEMES: Cosmetic[] = [
+  { id: "card-goldy", name: "Noir & Gold Luxe", slot: "card", style: "card-gold", price: 800, active: true },
+  { id: "card-cyber", name: "Cyberpunk Matrix", slot: "card", style: "card-cyber", price: 750, active: true },
+  { id: "card-dragon", name: "Dragon Inferno", slot: "card", style: "card-dragon", price: 850, active: true },
+  { id: "card-celestial", name: "Celestial Void", slot: "card", style: "card-celestial", price: 900, active: true },
+  { id: "card-emerald", name: "Jade Sovereign", slot: "card", style: "card-emerald", price: 750, active: true },
+  { id: "card-glacial", name: "Glacial Frost", slot: "card", style: "card-glacial", price: 700, active: true },
+  { id: "card-solar", name: "Solar Aurora", slot: "card", style: "card-solar", price: 800, active: true },
+  { id: "card-obsidian", name: "Obsidian Stealth", slot: "card", style: "card-obsidian", price: 750, active: true },
+  { id: "card-synthwave", name: "Synthwave Dusk", slot: "card", style: "card-synthwave", price: 700, active: true },
+  { id: "card-amethyst", name: "Royal Amethyst", slot: "card", style: "card-amethyst", price: 800, active: true },
+];
+
+export const DEFAULT_COSMETICS: Cosmetic[] = [...FRAMES, ...BADGES, ...EFFECTS, ...TITLES, ...CARD_THEMES];
 
 export const DEFAULT_ECONOMY: EconomySettings = { enabled: false, cosmetics: DEFAULT_COSMETICS, packs: [] };
 
