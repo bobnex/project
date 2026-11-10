@@ -1,42 +1,43 @@
 import { useMemo, useState } from "react";
-import { Check, Coins, Copy, Crown, Eye, Gem, Loader2, Search, ShoppingBag, Sparkles, Wallet, X } from "lucide-react";
+import { Check, Coins, Crown, Eye, Gem, ShoppingBag, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { CosmeticAvatar } from "./CosmeticPreview";
 import { useApp } from "@/lib/app-context";
+import { EMPTY_WALLET, getCardThemeStyle, type CoinPack, type Cosmetic, type CosmeticSlot, type CosmeticWallet } from "@/lib/cosmetics";
 import { buyCosmetic, equipCosmetic, submitTopup, useCosmetics } from "@/lib/cosmetics-store";
-import { EMPTY_WALLET, type CoinPack, type Cosmetic, type CosmeticSlot } from "@/lib/cosmetics";
 import { cn } from "@/lib/utils";
+import { CosmeticAvatar } from "./CosmeticPreview";
 
 export function CosmeticsShop() {
-  const { fb, user, profile, settings: appSettings } = useApp();
-  const { settings, wallet, ready, error, requests } = useCosmetics();
+  const { fb, user, profile } = useApp();
+  const { settings, wallet, requests, ready, error } = useCosmetics();
   const [category, setCategory] = useState<CosmeticSlot | "all">("all");
   const [search, setSearch] = useState("");
+  const [pack, setPack] = useState<CoinPack | null>(null);
   const [preview, setPreview] = useState<Cosmetic | null>(null);
   const [purchase, setPurchase] = useState<Cosmetic | null>(null);
-  const [pack, setPack] = useState<CoinPack | null>(null);
   const [sender, setSender] = useState("");
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const equippedMap = wallet?.equipped ?? {};
-  const ownedList = wallet?.owned ?? [];
+  const ownedList = wallet.owned;
+  const equippedMap = wallet.equipped;
+  const name = profile?.username || "Player";
 
-  const previewWallet = preview
-    ? { ...wallet, equipped: { ...equippedMap, [preview.slot]: preview.id } }
-    : wallet;
-  const name = profile?.username ?? "Player";
+  const previewWallet: CosmeticWallet = useMemo(() => {
+    if (!preview) return wallet;
+    return { ...wallet, equipped: { ...wallet.equipped, [preview.slot]: preview.id } };
+  }, [wallet, preview]);
 
   const filteredItems = useMemo(() => {
-    return settings.cosmetics.filter(item => {
-      const matchesCategory = category === "all" || item.slot === category;
-      const matchesSearch = !search.trim() || item.name.toLowerCase().includes(search.toLowerCase());
-      return matchesCategory && matchesSearch;
+    return settings.cosmetics.filter(c => {
+      const matchCat = category === "all" || c.slot === category;
+      const matchQuery = !search.trim() || c.name.toLowerCase().includes(search.toLowerCase());
+      return matchCat && matchQuery;
     });
   }, [settings.cosmetics, category, search]);
 
@@ -45,12 +46,8 @@ export function CosmeticsShop() {
     try {
       await fn();
       toast.success(message);
-      setPurchase(null);
-      setPack(null);
-      setSender("");
-      setReference("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Please try again.");
+      toast.error(e instanceof Error ? e.message : "Request failed.");
     } finally {
       setBusy(false);
     }
@@ -62,7 +59,7 @@ export function CosmeticsShop() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-accent flex items-center gap-2 text-xs font-semibold uppercase">
-              <Gem className="size-4" /> The Juvora collection (160 Items)
+              <Gem className="size-4" /> The Juvora Collection ({settings.cosmetics.length} Items)
             </p>
             <h2 className="mt-2 text-3xl font-bold">Make your mark.</h2>
             <p className="text-muted-foreground mt-2 text-sm">
@@ -77,19 +74,21 @@ export function CosmeticsShop() {
             </div>
           </div>
         </div>
-        {error && <p role="alert" className="text-destructive mt-4 text-sm">{error}</p>}
-        {!error && !settings.enabled && (
-          <p className="text-warning mt-4 text-sm">
-            Collection preview · Purchases open when an admin activates the shop.
-          </p>
-        )}
       </section>
+
+      {error && <p className="bg-destructive/10 text-destructive rounded-lg border p-4 text-sm">{error}</p>}
 
       <Tabs defaultValue="shop" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="shop"><ShoppingBag className="size-4 mr-2" /> Shop</TabsTrigger>
-          <TabsTrigger value="closet"><Sparkles className="size-4 mr-2" /> Customize</TabsTrigger>
-          <TabsTrigger value="coins"><Coins className="size-4 mr-2" /> Coins</TabsTrigger>
+          <TabsTrigger value="shop">
+            <ShoppingBag className="size-4 mr-2" /> Shop
+          </TabsTrigger>
+          <TabsTrigger value="closet">
+            <Sparkles className="size-4 mr-2" /> Customize
+          </TabsTrigger>
+          <TabsTrigger value="coins">
+            <Coins className="size-4 mr-2" /> Coins
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="shop" className="space-y-5">
@@ -103,25 +102,24 @@ export function CosmeticsShop() {
                   onClick={() => setCategory(c)}
                   aria-pressed={category === c}
                 >
-                  {c === "all" ? "All" : c === "card" ? "Card Themes" : `${c[0].toUpperCase()}${c.slice(1)}s`}
+                  {c === "all" ? "All Items" : c === "card" ? "Card Themes" : `${c}s`}
                 </Button>
               ))}
             </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="text-muted-foreground absolute left-2.5 top-2.5 size-4" />
-              <Input
-                placeholder="Search cosmetics..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <Input
+              placeholder="Search cosmetics..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full sm:w-56"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {filteredItems.map(item => {
               const owned = ownedList.includes(item.id);
               const isEquipped = equippedMap[item.slot] === item.id;
+              const cardStyle = getCardThemeStyle(item);
+
               return (
                 <div
                   key={item.id}
@@ -129,7 +127,24 @@ export function CosmeticsShop() {
                 >
                   <div className="flex flex-col items-center w-full">
                     {item.slot === "card" ? (
-                      <div className={cn("w-full h-24 rounded-xl p-2.5 flex flex-col items-center justify-center border shadow-sm transition-all", `cosmetic-${item.style}`)}>
+                      <div
+                        className={cn(
+                          "w-full h-24 rounded-xl p-2.5 flex flex-col items-center justify-center border shadow-sm transition-all relative overflow-hidden",
+                          `cosmetic-${item.style}`
+                        )}
+                        style={cardStyle}
+                      >
+                        {item.cardDesign?.badgeText && (
+                          <span
+                            className="absolute top-1 right-1 text-[8px] font-black uppercase px-1.5 py-0.2 rounded-full"
+                            style={{
+                              backgroundColor: item.cardDesign.badgeBg || "rgba(212, 175, 55, 0.9)",
+                              color: item.cardDesign.badgeColor || "#000",
+                            }}
+                          >
+                            {item.cardDesign.badgeText}
+                          </span>
+                        )}
                         <CosmeticAvatar name={name} wallet={wallet} size={32} />
                         <span className="text-xs font-bold mt-1.5 line-clamp-1">{name}</span>
                         <span className="text-[10px] text-muted-foreground flex items-center gap-1">
@@ -145,7 +160,9 @@ export function CosmeticsShop() {
                       />
                     )}
                     <h4 className="mt-3 text-sm font-bold line-clamp-1">{item.name}</h4>
-                    <p className="text-muted-foreground text-xs uppercase">{item.slot === "card" ? "Card Theme" : item.slot}</p>
+                    <p className="text-muted-foreground text-xs uppercase">
+                      {item.slot === "card" ? "Card Theme" : item.slot}
+                    </p>
                   </div>
                   <div className="mt-4 space-y-2 w-full">
                     <div className="text-warning flex items-center justify-center gap-1 font-semibold text-xs">
@@ -210,71 +227,39 @@ export function CosmeticsShop() {
                     <X className="size-3.5 mr-1" /> Unequip {slot === "card" ? "theme" : slot}
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {ownedInSlot.map(c => {
-                    const isEquipped = activeEquippedId === c.id;
+                <div className="flex flex-wrap gap-2">
+                  {ownedInSlot.map(item => {
+                    const isEquipped = activeEquippedId === item.id;
                     return (
-                      <div
-                        key={c.id}
-                        className={cn(
-                          "surface-card rounded-lg border p-3 flex flex-col justify-between items-center text-center transition-all",
-                          isEquipped && "border-primary shadow-glow"
-                        )}
+                      <Button
+                        key={item.id}
+                        size="sm"
+                        variant={isEquipped ? "default" : "outline"}
+                        disabled={!ready || busy}
+                        onClick={() =>
+                          fb &&
+                          user &&
+                          action(() => equipCosmetic(fb.db, user.uid, slot, item.id), `${item.name} equipped.`)
+                        }
                       >
-                        {c.slot === "card" ? (
-                          <div className={cn("w-full h-20 rounded-lg p-2 flex flex-col items-center justify-center border mb-1", `cosmetic-${c.style}`)}>
-                            <CosmeticAvatar name={name} wallet={wallet} size={28} />
-                            <span className="text-[11px] font-bold mt-1 line-clamp-1">{name}</span>
-                          </div>
-                        ) : (
-                          <CosmeticAvatar
-                            name={name}
-                            wallet={{ ...EMPTY_WALLET, equipped: { [c.slot]: c.id } }}
-                            size={44}
-                            showTitle={c.slot === "title"}
-                          />
-                        )}
-                        <span className="font-semibold text-xs mt-2 line-clamp-1">{c.name}</span>
-                        <Button
-                          size="sm"
-                          className="mt-3 w-full text-xs"
-                          variant={isEquipped ? "outline" : "default"}
-                          disabled={busy || !ready}
-                          onClick={() =>
-                            fb &&
-                            user &&
-                            action(
-                              () => equipCosmetic(fb.db, user.uid, slot, isEquipped ? undefined : c.id),
-                              isEquipped ? `${c.name} unequipped.` : `${c.name} equipped.`
-                            )
-                          }
-                        >
-                          {isEquipped ? "Unequip" : "Equip"}
-                        </Button>
-                      </div>
+                        {isEquipped && <Check className="size-3.5 mr-1" />}
+                        {item.name}
+                      </Button>
                     );
                   })}
+                  {ownedInSlot.length === 0 && (
+                    <p className="text-muted-foreground text-xs py-2">
+                      No {slotTitle.toLowerCase()} owned yet. Visit the Shop tab to unlock!
+                    </p>
+                  )}
                 </div>
-                {ownedInSlot.length === 0 && (
-                  <p className="text-muted-foreground text-xs">No {slot === "card" ? "card themes" : `${slot}s`} unlocked yet.</p>
-                )}
               </section>
             );
           })}
         </TabsContent>
 
         <TabsContent value="coins" className="space-y-6">
-          <div>
-            <h3 className="flex items-center gap-2 text-xl font-bold">
-              <Wallet className="text-warning size-5" /> Top up your coins
-            </h3>
-            <p className="text-muted-foreground mt-2 text-sm">
-              Pay by direct bank transfer. Your Juvora coins are credited as soon as an admin approves your payment.
-            </p>
-            <p className="text-muted-foreground mt-1 text-xs">Shop coins are separate from battle reward coins.</p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {settings.packs.filter(p => p.active).map(p => (
               <div key={p.id} className="surface-card flex flex-col justify-between rounded-xl border p-5">
                 <div>
@@ -325,132 +310,158 @@ export function CosmeticsShop() {
       <Dialog open={!!preview} onOpenChange={open => !open && setPreview(null)}>
         <DialogContent className="max-w-sm text-center">
           <DialogTitle className="text-lg font-bold">{preview?.name}</DialogTitle>
-          <DialogDescription className="text-xs uppercase">{preview?.slot === "card" ? "Profile Card Theme" : preview?.slot}</DialogDescription>
+          <DialogDescription className="text-xs uppercase">
+            {preview?.slot === "card" ? "Profile Card Theme" : preview?.slot}
+          </DialogDescription>
           <div className="py-6 flex justify-center w-full">
             {preview?.slot === "card" ? (
-              <div className={cn("hero-card w-full flex flex-col items-center p-6 text-center rounded-2xl transition-all", `cosmetic-${preview.style}`)}>
+              <div
+                className={cn(
+                  "hero-card w-full flex flex-col items-center p-6 text-center rounded-2xl transition-all relative overflow-hidden",
+                  `cosmetic-${preview.style}`
+                )}
+                style={getCardThemeStyle(preview)}
+              >
+                {preview.cardDesign?.badgeText && (
+                  <span
+                    className="absolute top-2.5 right-2.5 text-[9px] font-black uppercase px-2 py-0.5 rounded-full"
+                    style={{
+                      backgroundColor: preview.cardDesign.badgeBg || "rgba(212, 175, 55, 0.9)",
+                      color: preview.cardDesign.badgeColor || "#000",
+                    }}
+                  >
+                    {preview.cardDesign.badgeText}
+                  </span>
+                )}
                 <CosmeticAvatar name={name} wallet={wallet} size={72} showTitle={true} />
                 <h3 className="mt-3 text-xl font-extrabold">{name}</h3>
                 <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-xs">
                   <Crown className="text-warning size-3.5" /> Level {profile?.level ?? 1}
                 </div>
-                <div className="mt-3 text-xs text-muted-foreground">Previewing profile card background & glow</div>
+                <p className="mt-3 text-xs opacity-75 italic line-clamp-2">
+                  {preview.cardDesign?.description || "Hero card theme for your player profile."}
+                </p>
               </div>
             ) : (
-              <CosmeticAvatar name={name} wallet={previewWallet} size={84} showTitle={true} />
+              <CosmeticAvatar
+                name={name}
+                wallet={{ ...EMPTY_WALLET, equipped: { [preview?.slot || "frame"]: preview?.id } }}
+                size={84}
+                showTitle={preview?.slot === "title"}
+              />
             )}
           </div>
-          <Button onClick={() => setPreview(null)}>Close preview</Button>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPreview(null)}>
+              Close
+            </Button>
+            {preview && !ownedList.includes(preview.id) && (
+              <Button
+                className="flex-1"
+                disabled={wallet.balance < preview.price}
+                onClick={() => {
+                  const itemToBuy = preview;
+                  setPreview(null);
+                  setPurchase(itemToBuy);
+                }}
+              >
+                Buy for {preview.price.toLocaleString()} coins
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Purchase Confirmation Dialog */}
-      <Dialog open={!!purchase} onOpenChange={open => !busy && !open && setPurchase(null)}>
+      <Dialog open={!!purchase} onOpenChange={open => !open && setPurchase(null)}>
         <DialogContent className="max-w-sm">
-          <DialogTitle>Unlock {purchase?.name}?</DialogTitle>
-          <DialogDescription>
-            This cosmetic costs {purchase?.price.toLocaleString()} Juvora coins and will be added permanently to your account.
-          </DialogDescription>
-          <p className="text-sm">Balance: {wallet.balance.toLocaleString()} coins</p>
-          {purchase && wallet.balance < purchase.price && (
-            <p className="text-warning text-sm">You need {(purchase.price - wallet.balance).toLocaleString()} more coins.</p>
-          )}
-          <div className="flex gap-2 justify-end mt-4">
-            <Button variant="ghost" disabled={busy} onClick={() => setPurchase(null)}>
+          <DialogHeader>
+            <DialogTitle>Unlock {purchase?.name}</DialogTitle>
+            <DialogDescription>
+              Spend {purchase?.price.toLocaleString()} Juvora coins to unlock this cosmetic for your signature.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 text-center">
+            <p className="text-muted-foreground text-xs">Your balance after purchase</p>
+            <p className="text-warning text-2xl font-black mt-1">
+              {((wallet.balance || 0) - (purchase?.price || 0)).toLocaleString()} coins
+            </p>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPurchase(null)}>
               Cancel
             </Button>
             <Button
-              disabled={busy || !purchase || wallet.balance < (purchase?.price ?? 0)}
-              onClick={() =>
-                fb &&
-                user &&
-                purchase &&
-                action(() => buyCosmetic(fb.db, user.uid, purchase.id), `Unlocked ${purchase.name}!`)
-              }
+              className="flex-1"
+              disabled={busy || !purchase}
+              onClick={() => {
+                if (!fb || !user || !purchase) return;
+                action(async () => {
+                  await buyCosmetic(fb.db, user.uid, purchase.id);
+                  setPurchase(null);
+                }, `Unlocked ${purchase.name}! Equip it in the Customize tab.`);
+              }}
             >
-              {busy ? <Loader2 className="animate-spin" /> : "Confirm purchase"}
+              Confirm
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Top-Up Payment Transfer Dialog */}
-      <Dialog open={!!pack} onOpenChange={open => !busy && !open && setPack(null)}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto max-w-md">
-          <DialogTitle>Buy {pack?.coins.toLocaleString()} coins</DialogTitle>
-          <DialogDescription>
-            Transfer ₦{pack?.amount.toLocaleString()} and submit your transfer details below for admin verification.
-          </DialogDescription>
-
-          <dl className="space-y-2 border-y py-3 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Bank</dt>
-              <dd className="font-semibold">{appSettings.payment.bank}</dd>
+      {/* Coin Pack Topup Dialog */}
+      <Dialog open={!!pack} onOpenChange={open => !open && setPack(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Top up {pack?.name}</DialogTitle>
+            <DialogDescription>
+              Transfer exactly ₦{pack?.amount.toLocaleString()} to our account, then submit your payment reference for admin confirmation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-1">
+              <p className="font-semibold text-foreground">Bank Payment Instructions:</p>
+              <p>Account: Juvora Global / First Bank (0123456789)</p>
+              <p>Amount: ₦{pack?.amount.toLocaleString()} (for {pack?.coins.toLocaleString()} coins)</p>
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-muted-foreground">Account number</dt>
-              <dd className="flex items-center gap-1 font-mono font-bold">
-                {appSettings.payment.accountNumber}
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Copy account number"
-                  onClick={() =>
-                    navigator.clipboard
-                      .writeText(appSettings.payment.accountNumber)
-                      .then(() => toast.success("Account copied"))
-                      .catch(() => toast.error("Please copy manually."))
-                  }
-                >
-                  <Copy className="size-4" />
-                </Button>
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Account name</dt>
-              <dd className="font-semibold">{appSettings.payment.accountName}</dd>
-            </div>
-          </dl>
-
-          <form
-            className="space-y-4"
-            onSubmit={e => {
-              e.preventDefault();
-              if (fb && user && pack) {
-                void action(
-                  () => submitTopup(fb.db, user.uid, name, pack.id, sender, reference),
-                  "Transfer submitted! Coins will be credited once verified by an admin."
-                );
-              }
-            }}
-          >
-            <div className="space-y-2">
-              <Label htmlFor="coin-sender">Sender name</Label>
+            <div>
+              <Label htmlFor="sender-name">Your Bank Account Name</Label>
               <Input
-                id="coin-sender"
-                required
-                maxLength={100}
-                placeholder="Name on your bank account"
+                id="sender-name"
+                placeholder="e.g. Daniel Balogun"
                 value={sender}
                 onChange={e => setSender(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="coin-reference">Bank transfer reference / Narration</Label>
+            <div>
+              <Label htmlFor="payment-ref">Transfer Reference / Narration</Label>
               <Input
-                id="coin-reference"
-                required
-                maxLength={100}
-                placeholder="Session ID, reference code, or narration"
+                id="payment-ref"
+                placeholder="e.g. JUV-829104"
                 value={reference}
                 onChange={e => setReference(e.target.value)}
               />
             </div>
-            <Button className="w-full" disabled={busy || !ready} type="submit">
-              {busy ? <Loader2 className="animate-spin" /> : <Check className="size-4 mr-2" />}
-              I’ve paid · Submit payment
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPack(null)}>
+              Cancel
             </Button>
-          </form>
+            <Button
+              className="flex-1"
+              disabled={busy || !sender.trim() || !reference.trim() || !pack}
+              onClick={() => {
+                if (!fb || !user || !pack) return;
+                action(async () => {
+                  await submitTopup(fb.db, user.uid, name, pack.id, sender, reference);
+                  setPack(null);
+                  setSender("");
+                  setReference("");
+                }, "Transfer submitted! Coins will be credited once confirmed.");
+              }}
+            >
+              Submit transfer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
