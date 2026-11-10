@@ -1,6 +1,7 @@
 # Favoje Battle roadmap
 
 Current request:
+- Add bank-transfer Juvora coin requests, atomic admin approvals, cosmetics shop and player customizer; verify and document Firebase security deployment requirements.
 - Repair rank updates, ranked settings and the admin AI question generator; verify affected rules and flows.
 - Global SFX admin toggle: master switch in Admin settings to mute all sound effects platform-wide; when off, hide/disable the player sound toggle.
 - Tournament team mode: admin-configurable teams (count, names, colors, roster size), allocation (random / RP-balanced / player choice / manual), scoring rule (total points / average / head-to-head wins), team standings tab, roster view, team tags in brackets and match listings.

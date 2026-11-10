@@ -385,3 +385,23 @@
   font-variant-numeric: lining-nums;
   letter-spacing: 0;
 }
+
+/* Cosmetic materials are independent of the player's theme. */
+:root {
+  --cosmetic-gold: oklch(0.8 0.14 85);
+  --cosmetic-cyan: oklch(0.78 0.13 205);
+  --cosmetic-rose: oklch(0.74 0.17 350);
+  --cosmetic-on-material: oklch(0.16 0.02 80);
+}
+.cosmetic-tone-gold, .cosmetic-frame-gold { --material: var(--cosmetic-gold); }
+.cosmetic-tone-cyan, .cosmetic-frame-cyan { --material: var(--cosmetic-cyan); }
+.cosmetic-tone-rose, .cosmetic-frame-rose { --material: var(--cosmetic-rose); }
+.cosmetic-stage { background: repeating-linear-gradient(135deg, transparent 0 22px, color-mix(in oklab, var(--material) 6%, transparent) 22px 23px), var(--surface); }
+.cosmetic-frame-gold { border: 3px double var(--material); box-shadow: 0 0 0 3px color-mix(in oklab, var(--material) 20%, transparent); }
+.cosmetic-frame-cyan { border: 2px dashed var(--material); box-shadow: 0 0 14px color-mix(in oklab, var(--material) 25%, transparent); }
+.cosmetic-frame-rose { border: 3px solid var(--material); box-shadow: 0 0 0 4px color-mix(in oklab, var(--material) 15%, transparent); }
+.cosmetic-badge { background: var(--material); color: var(--cosmetic-on-material); }
+.cosmetic-halo { box-shadow: 0 0 0 5px color-mix(in oklab, var(--cosmetic-gold) 30%, transparent), 0 0 28px color-mix(in oklab, var(--cosmetic-gold) 40%, transparent); animation: float 4s ease-in-out infinite; }
+.cosmetic-item { transition: transform 180ms ease, border-color 180ms ease; }
+@media (hover: hover) { .cosmetic-item:hover { transform: translateY(-3px); border-color: var(--primary); } }
+@media (prefers-reduced-motion: reduce) { .cosmetic-halo { animation: none; } .cosmetic-item { transition: none; } }

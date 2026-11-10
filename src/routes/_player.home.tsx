@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { PlayerAvatar } from "@/components/game/Avatar";
+import { CosmeticAvatar } from "@/components/game/CosmeticPreview";
+import { useCosmetics } from "@/lib/cosmetics-store";
 import { Empty, Section, Stat } from "@/components/game/ui";
 import { useApp } from "@/lib/app-context";
 import { xpForLevel } from "@/lib/game-rules";
@@ -36,6 +38,7 @@ interface Invite { id: string; fromName: string; code: string; matchId: string }
 
 function Home() {
   const { fb, user, profile, settings } = useApp();
+  const { wallet } = useCosmetics();
   const rankedCfg = useRankedConfig(fb?.db);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [leaders, setLeaders] = useState<Leader[]>([]);
@@ -89,7 +92,7 @@ function Home() {
       <div className="hero-card relative overflow-hidden p-5 sm:p-7">
         <Swords className="text-primary/10 absolute -right-6 -bottom-8 size-48 rotate-12" />
         <div className="relative flex items-center gap-4">
-          <PlayerAvatar name={profile.username} size={56} ring />
+          <CosmeticAvatar name={profile.username} wallet={wallet} size={56} />
           <div className="min-w-0">
             <div className="text-muted-foreground text-sm">{greet},</div>
             <div className="truncate text-2xl font-extrabold">{profile.username}</div>

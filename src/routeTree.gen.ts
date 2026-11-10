@@ -25,6 +25,7 @@ import { Route as PlayerNotificationsRouteImport } from './routes/_player.notifi
 import { Route as PlayerProfileRouteImport } from './routes/_player.profile'
 import { Route as PlayerRankingsRouteImport } from './routes/_player.rankings'
 import { Route as PlayerSettingsRouteImport } from './routes/_player.settings'
+import { Route as PlayerShopRouteImport } from './routes/_player.shop'
 import { Route as PlayerCbtIndexRouteImport } from './routes/_player.cbt.index'
 import { Route as PlayerCbtCourseIdRouteImport } from './routes/_player.cbt.$courseId'
 import { Route as PlayerMatchMatchIdRouteImport } from './routes/_player.match.$matchId'
@@ -111,6 +112,11 @@ const PlayerSettingsRoute = PlayerSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => PlayerRoute,
 } as any)
+const PlayerShopRoute = PlayerShopRouteImport.update({
+  id: '/shop',
+  path: '/shop',
+  getParentRoute: () => PlayerRoute,
+} as any)
 const PlayerCbtIndexRoute = PlayerCbtIndexRouteImport.update({
   id: '/cbt/',
   path: '/cbt/',
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof PlayerProfileRoute
   '/rankings': typeof PlayerRankingsRoute
   '/settings': typeof PlayerSettingsRoute
+  '/shop': typeof PlayerShopRoute
   '/cbt/$courseId': typeof PlayerCbtCourseIdRoute
   '/match/$matchId': typeof PlayerMatchMatchIdRoute
   '/review/$matchId': typeof PlayerReviewMatchIdRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/profile': typeof PlayerProfileRoute
   '/rankings': typeof PlayerRankingsRoute
   '/settings': typeof PlayerSettingsRoute
+  '/shop': typeof PlayerShopRoute
   '/cbt/$courseId': typeof PlayerCbtCourseIdRoute
   '/match/$matchId': typeof PlayerMatchMatchIdRoute
   '/review/$matchId': typeof PlayerReviewMatchIdRoute
@@ -207,6 +215,7 @@ export interface FileRoutesById {
   '/_player/profile': typeof PlayerProfileRoute
   '/_player/rankings': typeof PlayerRankingsRoute
   '/_player/settings': typeof PlayerSettingsRoute
+  '/_player/shop': typeof PlayerShopRoute
   '/_player/cbt/$courseId': typeof PlayerCbtCourseIdRoute
   '/_player/match/$matchId': typeof PlayerMatchMatchIdRoute
   '/_player/review/$matchId': typeof PlayerReviewMatchIdRoute
@@ -232,6 +241,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/rankings'
     | '/settings'
+    | '/shop'
     | '/cbt/$courseId'
     | '/match/$matchId'
     | '/review/$matchId'
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/rankings'
     | '/settings'
+    | '/shop'
     | '/cbt/$courseId'
     | '/match/$matchId'
     | '/review/$matchId'
@@ -279,6 +290,7 @@ export interface FileRouteTypes {
     | '/_player/profile'
     | '/_player/rankings'
     | '/_player/settings'
+    | '/_player/shop'
     | '/_player/cbt/$courseId'
     | '/_player/match/$matchId'
     | '/_player/review/$matchId'
@@ -409,6 +421,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayerSettingsRouteImport
       parentRoute: typeof PlayerRoute
     }
+    '/_player/shop': {
+      id: '/_player/shop'
+      path: '/shop'
+      fullPath: '/shop'
+      preLoaderRoute: typeof PlayerShopRouteImport
+      parentRoute: typeof PlayerRoute
+    }
     '/_player/cbt/': {
       id: '/_player/cbt/'
       path: '/cbt'
@@ -466,6 +485,7 @@ interface PlayerRouteChildren {
   PlayerProfileRoute: typeof PlayerProfileRoute
   PlayerRankingsRoute: typeof PlayerRankingsRoute
   PlayerSettingsRoute: typeof PlayerSettingsRoute
+  PlayerShopRoute: typeof PlayerShopRoute
   PlayerCbtCourseIdRoute: typeof PlayerCbtCourseIdRoute
   PlayerMatchMatchIdRoute: typeof PlayerMatchMatchIdRoute
   PlayerReviewMatchIdRoute: typeof PlayerReviewMatchIdRoute
@@ -486,6 +506,7 @@ const PlayerRouteChildren: PlayerRouteChildren = {
   PlayerProfileRoute: PlayerProfileRoute,
   PlayerRankingsRoute: PlayerRankingsRoute,
   PlayerSettingsRoute: PlayerSettingsRoute,
+  PlayerShopRoute: PlayerShopRoute,
   PlayerCbtCourseIdRoute: PlayerCbtCourseIdRoute,
   PlayerMatchMatchIdRoute: PlayerMatchMatchIdRoute,
   PlayerReviewMatchIdRoute: PlayerReviewMatchIdRoute,

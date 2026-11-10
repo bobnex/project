@@ -1,4 +1,5 @@
 import { clearQuestionCache } from "@/lib/question-cache";
+import { CosmeticsAdmin } from "@/components/game/CosmeticsAdmin";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
@@ -77,12 +78,13 @@ export function AdminDashboard() {
 
   return (
     <Tabs defaultValue="overview" className="space-y-4">
-      <TabsList className="grid w-full grid-cols-2 gap-2 rounded-xl sm:grid-cols-9">
+      <TabsList className="grid w-full grid-cols-2 gap-2 rounded-xl sm:grid-cols-5">
         <TabsTrigger value="overview"><Gauge className="size-4" /><span className="hidden sm:inline">Overview</span></TabsTrigger>
         <TabsTrigger value="questions"><BookOpen className="size-4" /><span className="hidden sm:inline">Questions</span></TabsTrigger>
         <TabsTrigger value="cbt"><ClipboardList className="size-4" /><span className="hidden sm:inline">CBT</span></TabsTrigger>
         <TabsTrigger value="users"><Users className="size-4" /><span className="hidden sm:inline">Players</span></TabsTrigger>
         <TabsTrigger value="payments"><Wallet className="size-4" /><span className="hidden sm:inline">Payments</span></TabsTrigger>
+        <TabsTrigger value="shop"><Sparkles className="size-4" /><span className="hidden sm:inline">Coin shop</span></TabsTrigger>
         <TabsTrigger value="sponsors"><Handshake className="size-4" /><span className="hidden sm:inline">Sponsors</span></TabsTrigger>
         <TabsTrigger value="battles"><Swords className="size-4" /><span className="hidden sm:inline">Battles</span></TabsTrigger>
         <TabsTrigger value="ranked"><Shield className="size-4" /><span className="hidden sm:inline">Ranked</span></TabsTrigger>
@@ -93,6 +95,7 @@ export function AdminDashboard() {
       <TabsContent value="cbt"><CbtCourses /></TabsContent>
       <TabsContent value="users"><Players /></TabsContent>
       <TabsContent value="payments"><Payments /></TabsContent>
+      <TabsContent value="shop"><CosmeticsAdmin /></TabsContent>
       <TabsContent value="sponsors"><SponsorsTab /></TabsContent>
       <TabsContent value="battles"><Battles /></TabsContent>
       <TabsContent value="ranked"><RankedTab /></TabsContent>

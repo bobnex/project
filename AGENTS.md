@@ -10,6 +10,8 @@
 <!-- LOVABLE:END -->
 
 ## Project rules
+- Paid cosmetics use a dedicated Firestore wallet, separate from game-reward coins; transactions and dedicated Firestore rules protect approvals, spending, ownership and equipment without changing scoring.
+- Shop rules are an additive deployment fragment, not a replacement for existing game rules; purchases stay disabled until admins configure packs and install restrictive wallet rules.
 - Admin access is decided by the hardcoded `ADMIN_EMAILS` list in `src/lib/app-context.tsx` — the owner asked for no Firebase role setup.
 - tsconfig keeps `noUncheckedIndexedAccess`/`noPropertyAccessFromIndexSignature` off — Firestore document data is index-typed everywhere and those checks only add noise.
 - Firebase uses its public web configuration directly in the browser; this avoids depending on a server secret for a public client identifier.

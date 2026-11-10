@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Award, Bell, ClipboardList, Coins, House, Settings, ShieldCheck, Swords, Trophy, UserRound, Users, HelpCircle } from "lucide-react";
+import { Award, Bell, ClipboardList, Coins, House, Settings, ShieldCheck, Swords, Trophy, UserRound, Users, HelpCircle, ShoppingBag } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -8,6 +8,8 @@ import { settlePending } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 import { BrandMark, BrandName } from "./Brand";
 import { PlayerAvatar } from "./Avatar";
+import { CosmeticAvatar } from "./CosmeticPreview";
+import { useCosmetics } from "@/lib/cosmetics-store";
 
 export const NAV = [
   { to: "/home", label: "Home", icon: House },
@@ -17,6 +19,7 @@ export const NAV = [
   { to: "/rankings", label: "Rankings", icon: Trophy },
   { to: "/friends", label: "Friends", icon: Users },
   { to: "/profile", label: "Profile", icon: UserRound },
+  { to: "/shop", label: "Shop", icon: ShoppingBag },
   { to: "/help", label: "Help", icon: HelpCircle },
 ] as const;
 
@@ -33,10 +36,12 @@ const TITLES: Record<string, string> = {
   "/notifications": "Notifications",
   "/admin": "Admin Centre",
   "/help": "Help",
+  "/shop": "Cosmetics Shop",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { profile, isAdmin, fb, user } = useApp();
+  const { wallet } = useCosmetics();
   const { pathname } = useLocation();
   const inMatch = pathname.startsWith("/match") || /^\/cbt\/.+/.test(pathname);
   const [unread, setUnread] = useState(0);
@@ -75,7 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         {profile && (
           <Link to="/profile" className="surface-card mt-auto flex items-center gap-3 p-3">
-            <PlayerAvatar name={profile.username} size={36} />
+            <CosmeticAvatar name={profile.username} wallet={wallet} size={32} />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{profile.username}</div>
               <div className="text-muted-foreground text-xs">Level {profile.level} · {profile.rating} SR</div>
@@ -92,10 +97,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
             <h1 className="flex-1 truncate text-lg font-bold">{title}</h1>
             {profile && (
-              <div className="bg-muted flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold">
+              <Link to="/shop" aria-label="Juvora coin shop" className="bg-muted flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold">
                 <Coins className="text-warning size-4" />
-                <span className="tabular">{profile.coins}</span>
-              </div>
+                <span className="tabular">{wallet.balance}</span>
+              </Link>
             )}
             <Link to="/notifications" aria-label="Notifications" className="hover:bg-muted relative grid size-9 place-items-center rounded-full">
               <Bell className="size-5" />
@@ -122,7 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {!inMatch && (
           <nav className="glass pb-safe fixed inset-x-0 bottom-0 z-40 border-t lg:hidden">
-            <div className="mx-auto grid max-w-xl grid-cols-4 px-1 pt-2">
+            <div className="mx-auto grid max-w-xl grid-cols-5 px-1 pt-2">
               {NAV.map((n) => {
                 const active = pathname.startsWith(n.to);
                 const Icon = n.icon;

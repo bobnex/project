@@ -1,4 +1,6 @@
 import { TrophyCabinet } from "@/components/game/tournament-extras";
+import { CosmeticAvatar } from "@/components/game/CosmeticPreview";
+import { useCosmetics } from "@/lib/cosmetics-store";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
@@ -27,6 +29,7 @@ const BADGES = [
 
 function Profile() {
   const { fb, user, profile } = useApp();
+  const { wallet } = useCosmetics();
   const rankedCfg = useRankedConfig(fb?.db);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -43,7 +46,7 @@ function Profile() {
     <div className="space-y-6">
       {user && <TrophyCabinet uid={user.uid} />}
       <div className="hero-card flex flex-col items-center p-6 text-center">
-        <PlayerAvatar name={profile.username} size={88} ring />
+        <CosmeticAvatar name={profile.username} wallet={wallet} size={88} />
         <h2 className="mt-3 text-2xl font-extrabold">{profile.username}</h2>
         <div className="text-muted-foreground mt-1 flex items-center gap-3 text-sm">
           <span className="flex items-center gap-1"><Crown className="text-warning size-4" /> Level {profile.level}</span>
@@ -51,6 +54,7 @@ function Profile() {
         <RankBadge state={profile} cfg={rankedCfg} showProgress className="mt-3 w-full max-w-xs" />
         <div className="text-muted-foreground mt-1 flex items-center gap-1 text-xs"><CalendarDays className="size-3.5" /> Joined {new Date(profile.createdAt).toLocaleDateString()}</div>
         <Button asChild variant="glass" size="sm" className="mt-4"><Link to="/settings"><Settings /> Settings & themes</Link></Button>
+        <Button asChild variant="outline" size="sm" className="mt-2"><Link to="/shop"><Crown /> Customize player</Link></Button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
