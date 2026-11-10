@@ -386,22 +386,126 @@
   letter-spacing: 0;
 }
 
-/* Cosmetic materials are independent of the player's theme. */
+/* ==========================================================================
+   Cosmetics Materials, Frames, Badges & Effects
+   (Independent of player theme)
+   ========================================================================== */
 :root {
-  --cosmetic-gold: oklch(0.8 0.14 85);
-  --cosmetic-cyan: oklch(0.78 0.13 205);
-  --cosmetic-rose: oklch(0.74 0.17 350);
+  --cosmetic-gold: oklch(0.82 0.15 85);
+  --cosmetic-cyan: oklch(0.80 0.14 205);
+  --cosmetic-rose: oklch(0.76 0.17 350);
+  --cosmetic-emerald: oklch(0.78 0.16 150);
+  --cosmetic-ruby: oklch(0.68 0.22 25);
+  --cosmetic-violet: oklch(0.72 0.18 290);
+  --cosmetic-amber: oklch(0.79 0.16 65);
+  --cosmetic-silver: oklch(0.88 0.02 240);
+  --cosmetic-obsidian: oklch(0.32 0.03 270);
   --cosmetic-on-material: oklch(0.16 0.02 80);
 }
+
+/* Tone bindings */
 .cosmetic-tone-gold, .cosmetic-frame-gold { --material: var(--cosmetic-gold); }
 .cosmetic-tone-cyan, .cosmetic-frame-cyan { --material: var(--cosmetic-cyan); }
 .cosmetic-tone-rose, .cosmetic-frame-rose { --material: var(--cosmetic-rose); }
-.cosmetic-stage { background: repeating-linear-gradient(135deg, transparent 0 22px, color-mix(in oklab, var(--material) 6%, transparent) 22px 23px), var(--surface); }
-.cosmetic-frame-gold { border: 3px double var(--material); box-shadow: 0 0 0 3px color-mix(in oklab, var(--material) 20%, transparent); }
-.cosmetic-frame-cyan { border: 2px dashed var(--material); box-shadow: 0 0 14px color-mix(in oklab, var(--material) 25%, transparent); }
-.cosmetic-frame-rose { border: 3px solid var(--material); box-shadow: 0 0 0 4px color-mix(in oklab, var(--material) 15%, transparent); }
-.cosmetic-badge { background: var(--material); color: var(--cosmetic-on-material); }
-.cosmetic-halo { box-shadow: 0 0 0 5px color-mix(in oklab, var(--cosmetic-gold) 30%, transparent), 0 0 28px color-mix(in oklab, var(--cosmetic-gold) 40%, transparent); animation: float 4s ease-in-out infinite; }
-.cosmetic-item { transition: transform 180ms ease, border-color 180ms ease; }
-@media (hover: hover) { .cosmetic-item:hover { transform: translateY(-3px); border-color: var(--primary); } }
-@media (prefers-reduced-motion: reduce) { .cosmetic-halo { animation: none; } .cosmetic-item { transition: none; } }
+.cosmetic-tone-emerald, .cosmetic-frame-emerald { --material: var(--cosmetic-emerald); }
+.cosmetic-tone-ruby, .cosmetic-frame-ruby { --material: var(--cosmetic-ruby); }
+.cosmetic-tone-violet, .cosmetic-frame-violet { --material: var(--cosmetic-violet); }
+.cosmetic-tone-amber, .cosmetic-frame-amber { --material: var(--cosmetic-amber); }
+.cosmetic-tone-silver, .cosmetic-frame-silver { --material: var(--cosmetic-silver); }
+.cosmetic-tone-obsidian, .cosmetic-frame-obsidian { --material: var(--cosmetic-obsidian); }
+
+/* Title colors */
+.cosmetic-text-gold { color: var(--cosmetic-gold); }
+.cosmetic-text-cyan { color: var(--cosmetic-cyan); }
+.cosmetic-text-rose { color: var(--cosmetic-rose); }
+.cosmetic-text-emerald { color: var(--cosmetic-emerald); }
+.cosmetic-text-ruby { color: var(--cosmetic-ruby); }
+.cosmetic-text-violet { color: var(--cosmetic-violet); }
+.cosmetic-text-amber { color: var(--cosmetic-amber); }
+.cosmetic-text-silver { color: var(--cosmetic-silver); }
+.cosmetic-text-obsidian { color: var(--cosmetic-obsidian); }
+
+/* Stage backdrop */
+.cosmetic-stage {
+  background: repeating-linear-gradient(135deg, transparent 0 22px, color-mix(in oklab, var(--material) 6%, transparent) 22px 23px), var(--surface);
+}
+
+/* Profile Frames */
+.cosmetic-frame-gold { border: 3px double var(--material); box-shadow: 0 0 0 3px color-mix(in oklab, var(--material) 22%, transparent), 0 0 16px color-mix(in oklab, var(--material) 30%, transparent); }
+.cosmetic-frame-cyan { border: 2.5px dashed var(--material); box-shadow: 0 0 14px color-mix(in oklab, var(--material) 28%, transparent); }
+.cosmetic-frame-rose { border: 3px solid var(--material); box-shadow: 0 0 0 4px color-mix(in oklab, var(--material) 18%, transparent); }
+.cosmetic-frame-emerald { border: 3px solid var(--material); box-shadow: 0 0 16px color-mix(in oklab, var(--material) 30%, transparent); }
+.cosmetic-frame-ruby { border: 3px double var(--material); box-shadow: 0 0 18px color-mix(in oklab, var(--material) 35%, transparent); }
+.cosmetic-frame-violet { border: 2.5px dashed var(--material); box-shadow: 0 0 18px color-mix(in oklab, var(--material) 32%, transparent); }
+.cosmetic-frame-amber { border: 3px solid var(--material); box-shadow: 0 0 14px color-mix(in oklab, var(--material) 25%, transparent); }
+.cosmetic-frame-silver { border: 2.5px solid var(--material); box-shadow: 0 0 12px color-mix(in oklab, var(--material) 20%, transparent); }
+.cosmetic-frame-obsidian { border: 3px solid var(--material); box-shadow: 0 0 14px rgba(0,0,0,0.85), inset 0 0 8px rgba(0,0,0,0.6); }
+
+/* Badges */
+.cosmetic-badge {
+  background: var(--material);
+  color: var(--cosmetic-on-material);
+}
+
+/* Effect Halos & Auras */
+.cosmetic-halo,
+.cosmetic-effect-gold {
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--cosmetic-gold) 35%, transparent), 0 0 32px color-mix(in oklab, var(--cosmetic-gold) 45%, transparent);
+  animation: float 4s ease-in-out infinite;
+}
+.cosmetic-effect-cyan {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--cosmetic-cyan) 35%, transparent), 0 0 26px color-mix(in oklab, var(--cosmetic-cyan) 40%, transparent);
+  animation: float 4s ease-in-out infinite;
+}
+.cosmetic-effect-ruby {
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--cosmetic-ruby) 35%, transparent), 0 0 30px color-mix(in oklab, var(--cosmetic-ruby) 45%, transparent);
+  animation: float 3.5s ease-in-out infinite;
+}
+.cosmetic-effect-violet {
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--cosmetic-violet) 35%, transparent), 0 0 32px color-mix(in oklab, var(--cosmetic-violet) 45%, transparent);
+  animation: float 4.5s ease-in-out infinite;
+}
+.cosmetic-effect-emerald {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--cosmetic-emerald) 35%, transparent), 0 0 28px color-mix(in oklab, var(--cosmetic-emerald) 40%, transparent);
+  animation: float 4s ease-in-out infinite;
+}
+.cosmetic-effect-amber {
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--cosmetic-amber) 35%, transparent), 0 0 28px color-mix(in oklab, var(--cosmetic-amber) 40%, transparent);
+  animation: float 3.8s ease-in-out infinite;
+}
+.cosmetic-effect-silver {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--cosmetic-silver) 40%, transparent), 0 0 24px color-mix(in oklab, var(--cosmetic-silver) 35%, transparent);
+  animation: float 4.2s ease-in-out infinite;
+}
+.cosmetic-effect-obsidian {
+  box-shadow: 0 0 0 5px rgba(20, 20, 30, 0.8), 0 0 28px rgba(10, 10, 20, 0.9);
+  animation: float 4s ease-in-out infinite;
+}
+
+/* Shop item interactions */
+.cosmetic-item {
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+@media (hover: hover) {
+  .cosmetic-item:hover {
+    transform: translateY(-3px);
+    border-color: var(--primary);
+    box-shadow: 0 8px 20px -8px var(--glow);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cosmetic-halo,
+  .cosmetic-effect-gold,
+  .cosmetic-effect-cyan,
+  .cosmetic-effect-ruby,
+  .cosmetic-effect-violet,
+  .cosmetic-effect-emerald,
+  .cosmetic-effect-amber,
+  .cosmetic-effect-silver,
+  .cosmetic-effect-obsidian {
+    animation: none;
+  }
+  .cosmetic-item {
+    transition: none;
+  }
+}
