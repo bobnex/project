@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { Award, CalendarDays, Crown, Flame, Gamepad2, History, Percent, Settings, Swords, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PlayerAvatar } from "@/components/game/Avatar";
 import { Empty, Section, Stat } from "@/components/game/ui";
 import { useApp } from "@/lib/app-context";
 import { pageMeta } from "@/lib/meta";
@@ -46,15 +45,15 @@ function Profile() {
     <div className="space-y-6">
       {user && <TrophyCabinet uid={user.uid} />}
       <div className="hero-card flex flex-col items-center p-6 text-center">
-        <CosmeticAvatar name={profile.username} wallet={wallet} size={88} />
+        <CosmeticAvatar name={profile.username} wallet={wallet} size={88} showTitle={true} />
         <h2 className="mt-3 text-2xl font-extrabold">{profile.username}</h2>
         <div className="text-muted-foreground mt-1 flex items-center gap-3 text-sm">
           <span className="flex items-center gap-1"><Crown className="text-warning size-4" /> Level {profile.level}</span>
-          </div>
+        </div>
         <RankBadge state={profile} cfg={rankedCfg} showProgress className="mt-3 w-full max-w-xs" />
         <div className="text-muted-foreground mt-1 flex items-center gap-1 text-xs"><CalendarDays className="size-3.5" /> Joined {new Date(profile.createdAt).toLocaleDateString()}</div>
-        <Button asChild variant="glass" size="sm" className="mt-4"><Link to="/settings"><Settings /> Settings & themes</Link></Button>
-        <Button asChild variant="outline" size="sm" className="mt-2"><Link to="/shop"><Crown /> Customize player</Link></Button>
+        <Button asChild variant="glass" size="sm" className="mt-4"><Link to="/settings"><Settings className="size-4 mr-2" /> Settings & themes</Link></Button>
+        <Button asChild variant="outline" size="sm" className="mt-2"><Link to="/shop"><Crown className="size-4 mr-2" /> Customize player</Link></Button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
