@@ -21,6 +21,14 @@ export interface RankedConfig {
   streakBonusMax: number;
   /** Ranked losses absorbed at a rank's starting RP before a demotion happens (0 = off). */
   demotionShield: number;
+  /** Admin-configured active season number (e.g. 1) */
+  seasonNumber?: number;
+  /** Custom display name for the season (e.g. "Season 1") */
+  seasonName?: string;
+  /** Milliseconds timestamp when season began */
+  seasonStartedAt?: number;
+  /** Milliseconds timestamp when season concludes */
+  seasonEndsAt?: number;
 }
 
 export const DEFAULT_TIERS: Tier[] = [
@@ -75,6 +83,10 @@ export function rankedConfig(raw: Partial<RankedConfig> | undefined | null): Ran
     streakBonusFrom: num(c.streakBonusFrom, DEFAULT_RANKED.streakBonusFrom, 1),
     streakBonusMax: num(c.streakBonusMax, DEFAULT_RANKED.streakBonusMax),
     demotionShield: num(c.demotionShield, DEFAULT_RANKED.demotionShield),
+    seasonNumber: typeof c.seasonNumber === "number" && c.seasonNumber > 0 ? c.seasonNumber : undefined,
+    seasonName: typeof c.seasonName === "string" && c.seasonName.trim() ? c.seasonName.trim() : undefined,
+    seasonStartedAt: typeof c.seasonStartedAt === "number" && c.seasonStartedAt > 0 ? c.seasonStartedAt : undefined,
+    seasonEndsAt: typeof c.seasonEndsAt === "number" && c.seasonEndsAt > 0 ? c.seasonEndsAt : undefined,
   };
 }
 
@@ -154,20 +166,26 @@ export function calculateRushRpDelta(meta: RushMeta, _cfg: RankedConfig = DEFAUL
   return Math.max(-15, Math.min(35, net));
 }
 
-export function seasonId(now: number): string {
+export function seasonId(now: number, cfg?: RankedConfig | null): string {
+  if (cfg?.seasonName && cfg.seasonName.trim()) return cfg.seasonName.trim();
+  if (cfg?.seasonNumber && cfg.seasonNumber > 0) return `Season ${cfg.seasonNumber}`;
   const d = new Date(now);
   return `${d.getUTCFullYear()}-S${Math.floor(d.getUTCMonth() / 3) + 1}`;
 }
-export function seasonEnds(now: number): number {
+
+export function seasonEnds(now: number, cfg?: RankedConfig | null): number {
+  if (cfg?.seasonEndsAt && cfg.seasonEndsAt > 0) return cfg.seasonEndsAt;
   const d = new Date(now);
   return Date.UTC(d.getUTCFullYear(), Math.floor(d.getUTCMonth() / 3) * 3 + 3, 1);
 }
+
 export function weekKey(now: number): string {
   const d = new Date(now);
   const day = (d.getUTCDay() + 6) % 7; // Monday = 0
   const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
   return monday.toISOString().slice(0, 10);
 }
+
 export function monthKey(now: number): string {
   return new Date(now).toISOString().slice(0, 7);
 }
@@ -210,7 +228,7 @@ export function isRankedPlaced(s: Pick<RankedState, "placed" | "placementPlayed"
 
 /** If the stored season is old, returns the reset patch and an archive of the finished season. */
 export function seasonRollover(s: RankedState, cfg: RankedConfig, now: number): { patch: Partial<RankedState>; archive: SeasonArchive | null } {
-  const sid = seasonId(now);
+  const sid = seasonId(now, cfg);
   if (s.seasonId === sid) return { patch: {}, archive: null };
   if (!s.seasonId) return { patch: { seasonId: sid, seasonRp: 0, seasonWins: 0, seasonLosses: 0, seasonDraws: 0 }, archive: null };
   const rp = s.rp ?? 0;
