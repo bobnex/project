@@ -509,3 +509,58 @@
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Profile Hero Card Themes (Cosmetic Card Skins)
+   ========================================================================== */
+.cosmetic-card-gold {
+  background: radial-gradient(circle at 50% 0%, oklch(0.25 0.06 85 / 0.85) 0%, oklch(0.14 0.02 80 / 0.98) 75%), var(--surface) !important;
+  border: 1.5px solid var(--cosmetic-gold) !important;
+  box-shadow: 0 0 24px color-mix(in oklab, var(--cosmetic-gold) 22%, transparent), inset 0 1px 0 rgba(255, 230, 150, 0.3) !important;
+}
+.cosmetic-card-cyber {
+  background: linear-gradient(135deg, oklch(0.20 0.06 290 / 0.85) 0%, oklch(0.14 0.05 205 / 0.98) 100%) !important;
+  border: 1.5px solid var(--cosmetic-cyan) !important;
+  box-shadow: 0 0 22px color-mix(in oklab, var(--cosmetic-cyan) 30%, transparent), 0 0 40px color-mix(in oklab, var(--cosmetic-rose) 20%, transparent) !important;
+}
+.cosmetic-card-dragon {
+  background: radial-gradient(circle at 50% 100%, oklch(0.26 0.12 30 / 0.8) 0%, oklch(0.14 0.04 25 / 0.98) 80%), var(--surface) !important;
+  border: 1.5px solid var(--cosmetic-ruby) !important;
+  box-shadow: 0 0 26px color-mix(in oklab, var(--cosmetic-ruby) 32%, transparent), inset 0 0 20px rgba(255, 80, 50, 0.2) !important;
+}
+.cosmetic-card-celestial {
+  background: radial-gradient(ellipse at 50% -20%, oklch(0.27 0.13 290 / 0.9) 0%, oklch(0.12 0.03 270 / 0.98) 85%) !important;
+  border: 1.5px solid var(--cosmetic-violet) !important;
+  box-shadow: 0 0 28px color-mix(in oklab, var(--cosmetic-violet) 35%, transparent), inset 0 1px 2px rgba(220, 180, 255, 0.4) !important;
+}
+.cosmetic-card-emerald {
+  background: radial-gradient(circle at 50% 0%, oklch(0.24 0.09 150 / 0.8) 0%, oklch(0.13 0.03 150 / 0.98) 80%), var(--surface) !important;
+  border: 1.5px solid var(--cosmetic-emerald) !important;
+  box-shadow: 0 0 24px color-mix(in oklab, var(--cosmetic-emerald) 30%, transparent), inset 0 1px 0 rgba(140, 255, 200, 0.3) !important;
+}
+.cosmetic-card-glacial {
+  background: linear-gradient(180deg, oklch(0.25 0.08 220 / 0.85) 0%, oklch(0.13 0.03 230 / 0.98) 100%) !important;
+  border: 1.5px solid var(--cosmetic-cyan) !important;
+  box-shadow: 0 0 22px color-mix(in oklab, var(--cosmetic-cyan) 30%, transparent), inset 0 1px 2px rgba(180, 240, 255, 0.5) !important;
+}
+.cosmetic-card-solar {
+  background: radial-gradient(circle at 50% 0%, oklch(0.28 0.12 70 / 0.8) 0%, oklch(0.14 0.03 65 / 0.98) 85%), var(--surface) !important;
+  border: 1.5px solid var(--cosmetic-amber) !important;
+  box-shadow: 0 0 24px color-mix(in oklab, var(--cosmetic-amber) 32%, transparent), inset 0 1px 0 rgba(255, 220, 120, 0.3) !important;
+}
+.cosmetic-card-obsidian {
+  background: linear-gradient(135deg, oklch(0.19 0.01 270) 0%, oklch(0.10 0.01 270) 100%) !important;
+  border: 1.5px solid oklch(0.45 0.01 270) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+.cosmetic-card-synthwave {
+  background: linear-gradient(180deg, oklch(0.23 0.10 320 / 0.9) 0%, oklch(0.14 0.06 40 / 0.98) 100%) !important;
+  border: 1.5px solid var(--cosmetic-rose) !important;
+  box-shadow: 0 0 24px color-mix(in oklab, var(--cosmetic-rose) 30%, transparent), 0 0 36px color-mix(in oklab, var(--cosmetic-amber) 20%, transparent) !important;
+}
+.cosmetic-card-amethyst {
+  background: radial-gradient(circle at 50% 0%, oklch(0.25 0.12 300 / 0.85) 0%, oklch(0.13 0.04 290 / 0.98) 80%) !important;
+  border: 1.5px solid var(--cosmetic-violet) !important;
+  box-shadow: 0 0 26px color-mix(in oklab, var(--cosmetic-violet) 32%, transparent), inset 0 1px 0 rgba(220, 180, 255, 0.35) !important;
+}
+
