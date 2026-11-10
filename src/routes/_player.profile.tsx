@@ -1,6 +1,7 @@
 import { TrophyCabinet } from "@/components/game/tournament-extras";
 import { CosmeticAvatar } from "@/components/game/CosmeticPreview";
 import { useCosmetics } from "@/lib/cosmetics-store";
+import { DEFAULT_COSMETICS } from "@/lib/cosmetics";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
@@ -12,6 +13,7 @@ import { pageMeta } from "@/lib/meta";
 import { RankBadge } from "@/components/game/RankBadge";
 import { useRankedConfig } from "@/lib/ranked-store";
 import { HistoryRow, type HistoryItem } from "@/components/game/HistoryRow";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_player/profile")({
   head: () => pageMeta("Profile", "Your player card, achievements and battle history."),
@@ -41,19 +43,29 @@ function Profile() {
   if (!profile) return null;
   const winRate = profile.battles ? Math.round((profile.wins / profile.battles) * 100) : 0;
 
+  const equippedCardThemeId = wallet?.equipped?.card;
+  const cardTheme = DEFAULT_COSMETICS.find(c => c.id === equippedCardThemeId);
+  const cardThemeClass = cardTheme?.style ? `cosmetic-${cardTheme.style}` : "";
+
   return (
     <div className="space-y-6">
       {user && <TrophyCabinet uid={user.uid} />}
-      <div className="hero-card flex flex-col items-center p-6 text-center">
+      <div className={cn("hero-card flex flex-col items-center p-6 text-center relative overflow-hidden transition-all duration-300", cardThemeClass)}>
         <CosmeticAvatar name={profile.username} wallet={wallet} size={88} showTitle={true} />
         <h2 className="mt-3 text-2xl font-extrabold">{profile.username}</h2>
         <div className="text-muted-foreground mt-1 flex items-center gap-3 text-sm">
           <span className="flex items-center gap-1"><Crown className="text-warning size-4" /> Level {profile.level}</span>
         </div>
         <RankBadge state={profile} cfg={rankedCfg} showProgress className="mt-3 w-full max-w-xs" />
-        <div className="text-muted-foreground mt-1 flex items-center gap-1 text-xs"><CalendarDays className="size-3.5" /> Joined {new Date(profile.createdAt).toLocaleDateString()}</div>
-        <Button asChild variant="glass" size="sm" className="mt-4"><Link to="/settings"><Settings className="size-4 mr-2" /> Settings & themes</Link></Button>
-        <Button asChild variant="outline" size="sm" className="mt-2"><Link to="/shop"><Crown className="size-4 mr-2" /> Customize player</Link></Button>
+        <div className="text-muted-foreground mt-1 flex items-center gap-1 text-xs">
+          <CalendarDays className="size-3.5" /> Joined {new Date(profile.createdAt).toLocaleDateString()}
+        </div>
+        <Button asChild variant="glass" size="sm" className="mt-4">
+          <Link to="/settings"><Settings className="size-4 mr-2" /> Settings & themes</Link>
+        </Button>
+        <Button asChild variant="outline" size="sm" className="mt-2">
+          <Link to="/shop"><Crown className="size-4 mr-2" /> Customize player</Link>
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -69,7 +81,9 @@ function Profile() {
             const on = b.test(profile);
             return (
               <div key={b.id} className={`surface-card flex flex-col items-center gap-2 p-3 text-center ${on ? "" : "opacity-40"}`}>
-                <div className={`grid size-10 place-items-center rounded-xl ${on ? "bg-gradient-primary text-primary-foreground" : "bg-muted"}`}><b.icon className="size-5" /></div>
+                <div className={`grid size-10 place-items-center rounded-xl ${on ? "bg-gradient-primary text-primary-foreground" : "bg-muted"}`}>
+                  <b.icon className="size-5" />
+                </div>
                 <span className="text-xs font-semibold">{b.label}</span>
               </div>
             );
