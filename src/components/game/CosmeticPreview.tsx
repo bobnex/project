@@ -17,22 +17,26 @@ export function CosmeticAvatar({
   showTitle = false,
 }: {
   name: string;
-  wallet: CosmeticWallet;
+  wallet?: CosmeticWallet;
   size?: number;
   showTitle?: boolean;
 }) {
-  const frame = DEFAULT_COSMETICS.find(c => c.id === wallet.equipped.frame);
-  const badge = DEFAULT_COSMETICS.find(c => c.id === wallet.equipped.badge);
-  const effect = DEFAULT_COSMETICS.find(c => c.id === wallet.equipped.effect);
-  const title = DEFAULT_COSMETICS.find(c => c.id === wallet.equipped.title);
+  const equipped = wallet?.equipped ?? {};
+  const frame = DEFAULT_COSMETICS.find(c => c.id === equipped.frame);
+  const badge = DEFAULT_COSMETICS.find(c => c.id === equipped.badge);
+  const effect = DEFAULT_COSMETICS.find(c => c.id === equipped.effect);
+  const title = DEFAULT_COSMETICS.find(c => c.id === equipped.title);
 
   const BadgeIcon = resolveIcon(badge?.iconName);
+  const hasFrameOrEffect = Boolean(frame || effect);
+  const isSmall = size <= 40;
 
   return (
     <div className="inline-flex flex-col items-center gap-1.5">
       <div
         className={cn(
-          "cosmetic-avatar relative inline-flex shrink-0 items-center justify-center rounded-full p-2.5 transition-transform duration-300",
+          "cosmetic-avatar relative inline-flex shrink-0 items-center justify-center rounded-full transition-transform duration-300",
+          hasFrameOrEffect && "p-2",
           frame && `cosmetic-frame-${frame.style}`,
           effect && `cosmetic-effect-${effect.style}`
         )}
@@ -41,12 +45,13 @@ export function CosmeticAvatar({
         {badge && (
           <span
             className={cn(
-              "cosmetic-badge absolute -right-1 -bottom-1 grid size-7 place-items-center rounded-full border-2 border-background shadow-md",
+              "cosmetic-badge absolute -right-1 -bottom-1 grid place-items-center rounded-full border-2 border-background shadow-md",
+              isSmall ? "size-5" : "size-7",
               `cosmetic-tone-${badge.style}`
             )}
             title={badge.name}
           >
-            <BadgeIcon className="size-3.5" />
+            <BadgeIcon className={isSmall ? "size-2.5" : "size-3.5"} />
           </span>
         )}
       </div>
