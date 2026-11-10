@@ -48,7 +48,13 @@ function Rankings() {
   const top = rows?.slice(0, 3) ?? [];
   const podium = [top[1], top[0], top[2]];
   const myPos = rows && user ? rows.findIndex((r) => r.id === user.uid) : -1;
-  const daysLeft = Math.max(0, Math.ceil((seasonEnds(Date.now()) - Date.now()) / 86400000));
+
+  // Calculate remaining time against the configured season end date
+  const endsAt = seasonEnds(Date.now(), rankedCfg);
+  const msLeft = Math.max(0, endsAt - Date.now());
+  const daysLeft = Math.ceil(msLeft / 86400000);
+  const countdownLabel = msLeft <= 0 ? "Ended" : daysLeft > 1 ? `${daysLeft}d` : `${Math.max(1, Math.ceil(msLeft / 3600000))}h`;
+
   const unit = key === "rp" || key === "weeklyRp" ? "RP" : key === "rating" ? "SR" : key === "wins" ? "wins" : "streak";
   const placed = profile ? isRankedPlaced(profile, rankedCfg) : false;
   const rp = profile?.rp ?? 0;
@@ -79,7 +85,7 @@ function Rankings() {
                 <div className="font-display truncate text-xl font-extrabold leading-tight">{placed ? rank.label : "Unranked"}</div>
               </div>
               <div className="text-muted-foreground shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest">
-                {seasonId(Date.now())}
+                {seasonId(Date.now(), rankedCfg)}
               </div>
             </div>
 
@@ -123,7 +129,7 @@ function Rankings() {
               <div className="p-3 text-center">
                 <div className="tabular flex items-center justify-center gap-1.5 text-lg font-extrabold">
                   <CalendarClock className="size-4" />
-                  {daysLeft}d
+                  {countdownLabel}
                 </div>
                 <div className="text-muted-foreground mt-0.5 text-[10px] font-semibold uppercase">Season ends</div>
               </div>
