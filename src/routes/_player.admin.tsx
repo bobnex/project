@@ -10,7 +10,6 @@ import {
   getCountFromServer,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   where,
@@ -19,16 +18,11 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import {
-  Ban,
   BookOpen,
   CalendarClock,
   Check,
-  ClipboardList,
   Clock,
-  Crown,
   Database,
-  FileJson,
-  Gauge,
   Handshake,
   Loader2,
   Plus,
@@ -36,7 +30,6 @@ import {
   Shield,
   ShieldAlert,
   Sparkles,
-  Swords,
   Trash2,
   Upload,
   Users,
@@ -56,10 +49,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { DEFAULT_RANKED, seasonId, type RankedConfig } from "@/lib/ranked";
 import { getRankedConfig, saveRankedConfig } from "@/lib/ranked-store";
-import { normalizePayment, normalizeSponsors, type Sponsor, type PaymentDetails } from "@/lib/payment";
+import { DEFAULT_PAYMENT, normalizePayment, normalizeSponsors, type Sponsor, type PaymentDetails } from "@/lib/payment";
 import { useApp } from "@/lib/app-context";
 import { pageMeta } from "@/lib/meta";
-import { addSubject, listSubjects, removeSubject, updateSubject, type SubjectDoc } from "@/lib/subjects";
+import { addSubject, listSubjects, updateSubject, type SubjectDoc } from "@/lib/subjects";
 
 export const Route = createFileRoute("/_player/admin")({
   head: () => pageMeta("Admin Console", "Manage subjects, questions, players, and game settings."),
@@ -72,8 +65,8 @@ interface QuestionDoc {
   question: string;
   options: string[];
   answer: number;
-  explanation?: string;
-  reported?: boolean;
+  explanation?: string | undefined;
+  reported?: boolean | undefined;
 }
 
 interface UserRow {
@@ -91,7 +84,16 @@ interface UserRow {
 }
 
 function AdminPage() {
-  const { user, isAdmin } = useApp();
+  const { user, isAdmin, loading } = useApp();
+
+  if (loading) {
+    return (
+      <div className="surface-card flex min-h-[50vh] flex-col items-center justify-center gap-3 p-8 text-center">
+        <Loader2 className="text-primary size-8 animate-spin" />
+        <div className="text-sm font-medium text-muted-foreground">Verifying admin access…</div>
+      </div>
+    );
+  }
 
   if (!isAdmin) {
     return (
@@ -116,13 +118,31 @@ function AdminPage() {
       </div>
 
       <Tabs defaultValue="questions" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-6 rounded-xl">
-          <TabsTrigger value="questions"><BookOpen className="size-4" /><span className="hidden sm:inline"> Questions</span></TabsTrigger>
-          <TabsTrigger value="players"><Users className="size-4" /><span className="hidden sm:inline"> Players</span></TabsTrigger>
-          <TabsTrigger value="ranked"><Shield className="size-4" /><span className="hidden sm:inline"> Ranked</span></TabsTrigger>
-          <TabsTrigger value="shop"><Wallet className="size-4" /><span className="hidden sm:inline"> Coin Shop</span></TabsTrigger>
-          <TabsTrigger value="app"><Settings2 className="size-4" /><span className="hidden sm:inline"> App</span></TabsTrigger>
-          <TabsTrigger value="sponsors"><Handshake className="size-4" /><span className="hidden sm:inline"> Sponsors</span></TabsTrigger>
+        <TabsList className="grid w-full grid-cols-3 gap-1 rounded-xl p-1.5 sm:grid-cols-6 h-auto">
+          <TabsTrigger value="questions" className="text-xs py-2">
+            <BookOpen className="size-4 mr-1 shrink-0" />
+            <span>Questions</span>
+          </TabsTrigger>
+          <TabsTrigger value="players" className="text-xs py-2">
+            <Users className="size-4 mr-1 shrink-0" />
+            <span>Players</span>
+          </TabsTrigger>
+          <TabsTrigger value="ranked" className="text-xs py-2">
+            <Shield className="size-4 mr-1 shrink-0" />
+            <span>Ranked</span>
+          </TabsTrigger>
+          <TabsTrigger value="shop" className="text-xs py-2">
+            <Wallet className="size-4 mr-1 shrink-0" />
+            <span>Shop</span>
+          </TabsTrigger>
+          <TabsTrigger value="app" className="text-xs py-2">
+            <Settings2 className="size-4 mr-1 shrink-0" />
+            <span>Settings</span>
+          </TabsTrigger>
+          <TabsTrigger value="sponsors" className="text-xs py-2">
+            <Handshake className="size-4 mr-1 shrink-0" />
+            <span>Sponsors</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="questions"><QuestionsTab /></TabsContent>
@@ -151,7 +171,7 @@ function QuestionsTab() {
 
   useEffect(() => {
     if (!fb) return;
-    listSubjects(fb.db).then(setSubjects);
+    listSubjects(fb.db).then(setSubjects).catch(() => {});
     getCountFromServer(collection(fb.db, "questions"))
       .then((c) => setTotalCount(c.data().count))
       .catch(() => {});
@@ -167,6 +187,9 @@ function QuestionsTab() {
     getDocs(q)
       .then((snap) => {
         setQuestions(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<QuestionDoc, "id">) })));
+      })
+      .catch((e) => {
+        toast.error("Failed to load questions: " + (e as Error).message);
       })
       .finally(() => setLoading(false));
   }, [fb, selectedCourse]);
@@ -191,7 +214,7 @@ function QuestionsTab() {
     if (!fb || !newSubject.trim()) return;
     try {
       const added = await addSubject(fb.db, newSubject.trim());
-      setSubjects((s) => [...s, added]);
+      setSubjects((s) => (s.some((x) => x.id === added.id) ? s : [...s, added]));
       setNewSubject("");
       toast.success(`Subject "${added.name}" added`);
     } catch (e) {
@@ -377,7 +400,7 @@ function QuestionEditorDialog({ question, course, onClose, onSaved }: { question
                   name="correct-answer"
                   checked={ans === i}
                   onChange={() => setAns(i)}
-                  className="size-4"
+                  className="size-4 accent-primary"
                 />
                 <Input
                   value={opt}
@@ -414,18 +437,27 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
   async function handleImport() {
     if (!fb) return;
     try {
-      const parsed = parseQuestionImport(raw, course);
-      if (parsed.length === 0) return toast.error("No valid questions found in payload");
+      const { questions, errors } = parseQuestionImport(raw);
+      if (errors.length > 0 && questions.length === 0) return toast.error(errors[0]);
+      if (questions.length === 0) return toast.error("No valid questions found in payload");
       setBusy(true);
 
       const batch = writeBatch(fb.db);
-      for (const q of parsed) {
+      for (const q of questions) {
         const ref = doc(collection(fb.db, "questions"));
-        batch.set(ref, q);
+        batch.set(ref, {
+          course: (course.trim() || q.subject).trim(),
+          topic: q.topic || "",
+          question: q.text,
+          options: q.options,
+          answer: q.correctIndex,
+          reported: false,
+          createdAt: Date.now(),
+        });
       }
       await batch.commit();
       clearQuestionCache();
-      toast.success(`Imported ${parsed.length} questions successfully`);
+      toast.success(`Imported ${questions.length} questions successfully`);
       onImported();
       onClose();
     } catch (e) {
@@ -440,7 +472,7 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Bulk Import Questions</DialogTitle>
-          <DialogDescription>Paste JSON array or line-delimited format.</DialogDescription>
+          <DialogDescription>Paste a JSON array of questions.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1">
@@ -448,7 +480,7 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
             <Input value={course} onChange={(e) => setCourse(e.target.value)} placeholder="e.g. Chemistry" />
           </div>
           <div className="space-y-1">
-            <Label>Questions JSON / Text</Label>
+            <Label>Questions JSON</Label>
             <Textarea
               rows={10}
               className="font-mono text-xs"
@@ -482,6 +514,14 @@ function PlayersTab() {
       .then((s) => {
         setPlayers(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UserRow, "id">) })));
       })
+      .catch(() => {
+        // Fallback without orderBy if createdAt index is not present
+        getDocs(query(collection(fb.db, "users"), limit(100)))
+          .then((s) => {
+            setPlayers(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UserRow, "id">) })));
+          })
+          .catch((err) => toast.error("Failed to load players: " + (err as Error).message));
+      })
       .finally(() => setLoading(false));
   }, [fb]);
 
@@ -490,7 +530,7 @@ function PlayersTab() {
     const next = !p.banned;
     try {
       await updateDoc(doc(fb.db, "users", p.id), { banned: next });
-      setPlayers((cur) => cur.map((x) => x.id === p.id ? { ...x, banned: next } : x));
+      setPlayers((cur) => cur.map((x) => (x.id === p.id ? { ...x, banned: next } : x)));
       toast.success(next ? `Banned ${p.username ?? p.id}` : `Unbanned ${p.username ?? p.id}`);
     } catch (e) {
       toast.error((e as Error).message);
@@ -502,7 +542,7 @@ function PlayersTab() {
     const next = !p.rankedSuspended;
     try {
       await updateDoc(doc(fb.db, "users", p.id), { rankedSuspended: next });
-      setPlayers((cur) => cur.map((x) => x.id === p.id ? { ...x, rankedSuspended: next } : x));
+      setPlayers((cur) => cur.map((x) => (x.id === p.id ? { ...x, rankedSuspended: next } : x)));
       toast.success(next ? `Suspended ranked access for ${p.username ?? p.id}` : `Restored ranked access`);
     } catch (e) {
       toast.error((e as Error).message);
@@ -595,7 +635,11 @@ function RankedTab() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (fb) getRankedConfig(fb.db, true).then(setCfg);
+    if (fb) {
+      getRankedConfig(fb.db, true)
+        .then(setCfg)
+        .catch(() => setCfg(DEFAULT_RANKED));
+    }
   }, [fb]);
 
   if (!cfg) {
@@ -715,7 +759,9 @@ function RankedTab() {
               onChange={(e) => {
                 const val = e.target.value;
                 if (!val) {
-                  setCfg({ ...cfg, seasonEndsAt: undefined });
+                  const next = { ...cfg };
+                  delete next.seasonEndsAt;
+                  setCfg(next);
                 } else {
                   setCfg({ ...cfg, seasonEndsAt: new Date(val).getTime() });
                 }
@@ -754,7 +800,11 @@ function RankedTab() {
               size="sm"
               variant="ghost"
               className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setCfg({ ...cfg, seasonEndsAt: undefined })}
+              onClick={() => {
+                const next = { ...cfg };
+                delete next.seasonEndsAt;
+                setCfg(next);
+              }}
             >
               Clear end date
             </Button>
@@ -807,7 +857,7 @@ function RankedTab() {
 
       <div className="flex gap-2">
         <Button onClick={save} disabled={saving}>
-          {saving ? <Loader2 className="animate-spin" /> : <Check />} Save ranked settings
+          {saving ? <Loader2 className="animate-spin" /> : <Check className="size-4" />} Save ranked settings
         </Button>
         <Button variant="outline" onClick={() => setCfg(DEFAULT_RANKED)}>
           Reset to defaults
@@ -819,12 +869,12 @@ function RankedTab() {
 
 function AppSettingsTab() {
   const { fb, settings } = useApp();
-  const [ghostWaitSeconds, setGhostWaitSeconds] = useState(settings.ghostWaitSeconds ?? 20);
+  const [ghostWaitSeconds, setGhostWaitSeconds] = useState(settings?.ghostWaitSeconds ?? 20);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setGhostWaitSeconds(settings.ghostWaitSeconds ?? 20);
-  }, [settings.ghostWaitSeconds]);
+    if (settings?.ghostWaitSeconds) setGhostWaitSeconds(settings.ghostWaitSeconds);
+  }, [settings?.ghostWaitSeconds]);
 
   async function saveGhostWait(secs: number) {
     if (!fb) return;
@@ -896,7 +946,14 @@ function CbtSettingsCard() {
   const [sel, setSel] = useState<string>("");
 
   useEffect(() => {
-    if (fb) listSubjects(fb.db).then((s) => { setSubjects(s); if (s[0]) setSel(s[0].id); });
+    if (fb) {
+      listSubjects(fb.db)
+        .then((s) => {
+          setSubjects(s);
+          if (s[0]) setSel(s[0].id);
+        })
+        .catch(() => {});
+    }
   }, [fb]);
 
   const curr = subjects.find((s) => s.id === sel);
@@ -907,12 +964,16 @@ function CbtSettingsCard() {
         <div className="font-semibold">CBT Course Settings</div>
         <div className="text-muted-foreground text-xs">Configure exam duration, pass mark, and question counts per subject.</div>
       </div>
-      <Select value={sel} onValueChange={setSel}>
-        <SelectTrigger className="max-w-xs"><SelectValue placeholder="Select course..." /></SelectTrigger>
-        <SelectContent>
-          {subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-        </SelectContent>
-      </Select>
+      {subjects.length > 0 ? (
+        <Select value={sel || subjects[0]?.id} onValueChange={setSel}>
+          <SelectTrigger className="max-w-xs"><SelectValue placeholder="Select course..." /></SelectTrigger>
+          <SelectContent>
+            {subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      ) : (
+        <div className="text-muted-foreground text-xs">No subjects available yet. Add subjects in the Questions tab.</div>
+      )}
       {curr && <CbtSubjectEditor key={curr.id} doc={curr} onSaved={(u) => setSubjects((cur) => cur.map((x) => x.id === u.id ? u : x))} />}
     </div>
   );
@@ -962,10 +1023,15 @@ function CbtSubjectEditor({ doc: d0, onSaved }: { doc: SubjectDoc; onSaved: (u: 
 
 function PaymentDetailsCard() {
   const { fb, settings } = useApp();
-  const [p, setP] = useState<PaymentDetails>(settings.payment);
+  const [p, setP] = useState<PaymentDetails>(settings?.payment ?? DEFAULT_PAYMENT);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setP(settings.payment), [settings.payment]);
-  const set = (k: keyof PaymentDetails) => (e: { target: { value: string } }) => setP({ ...p, [k]: k === "fee" ? Number(e.target.value) : e.target.value });
+
+  useEffect(() => {
+    if (settings?.payment) setP(settings.payment);
+  }, [settings?.payment]);
+
+  const set = (k: keyof PaymentDetails) => (e: { target: { value: string } }) =>
+    setP({ ...p, [k]: k === "fee" ? Number(e.target.value) : e.target.value });
 
   async function save() {
     if (!p.bank.trim() || !p.accountNumber.trim() || !p.accountName.trim()) return toast.error("Bank, account number and account name are required");
@@ -1015,11 +1081,13 @@ function PaymentDetailsCard() {
 
 function SponsorsTab() {
   const { fb, settings } = useApp();
-  const [sponsors, setSponsors] = useState<Sponsor[]>(settings.sponsors ?? []);
+  const [sponsors, setSponsors] = useState<Sponsor[]>(settings?.sponsors ?? []);
   const [next, setNext] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => setSponsors(settings.sponsors ?? []), [settings.sponsors]);
+  useEffect(() => {
+    if (settings?.sponsors) setSponsors(settings.sponsors);
+  }, [settings?.sponsors]);
 
   async function save(list: Sponsor[]) {
     if (!fb) return;
@@ -1035,8 +1103,11 @@ function SponsorsTab() {
   function add() {
     if (!next.trim()) return;
     const clean = next.trim();
-    if (sponsors.some(s => s.name.toLowerCase() === clean.toLowerCase())) return toast.error("Already in sponsors list");
-    const updated = [...sponsors, { id: crypto.randomUUID(), name: clean, tagline: "", url: "", active: true }];
+    if (sponsors.some((s) => s.name.toLowerCase() === clean.toLowerCase())) return toast.error("Already in sponsors list");
+    const updated: Sponsor[] = [
+      ...sponsors,
+      { id: crypto.randomUUID(), name: clean, tagline: "", logoUrl: "", website: "", active: true },
+    ];
     setNext("");
     save(updated);
   }
@@ -1060,7 +1131,7 @@ function SponsorsTab() {
           <span className="text-muted-foreground text-xs">No custom sponsors added yet.</span>
         ) : (
           sponsors.map((s, i) => (
-            <Badge key={i} variant="secondary" className="flex items-center gap-1.5 py-1 text-sm">
+            <Badge key={s.id || i} variant="secondary" className="flex items-center gap-1.5 py-1 text-sm">
               {s.name}
               <button type="button" onClick={() => remove(i)} className="hover:text-destructive">
                 <X className="size-3" />
