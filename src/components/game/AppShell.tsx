@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Award, Bell, ClipboardList, Coins, House, Settings, ShieldCheck, Swords, Trophy, UserRound, Users, HelpCircle, ShoppingBag } from "lucide-react";
+import { Award, Bell, ClipboardList, Coins, HelpCircle, House, Settings, Shield, ShieldCheck, ShoppingBag, Swords, Trophy, UserRound, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -7,13 +7,13 @@ import { useApp } from "@/lib/app-context";
 import { settlePending } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 import { BrandMark, BrandName } from "./Brand";
-import { PlayerAvatar } from "./Avatar";
 import { CosmeticAvatar } from "./CosmeticPreview";
 import { useCosmetics } from "@/lib/cosmetics-store";
 
 export const NAV = [
   { to: "/home", label: "Home", icon: House },
   { to: "/battle", label: "Battle", icon: Swords },
+  { to: "/clans", label: "Clans", icon: Shield },
   { to: "/cbt", label: "CBT", icon: ClipboardList },
   { to: "/tournaments", label: "Cups", icon: Award },
   { to: "/rankings", label: "Rankings", icon: Trophy },
@@ -26,6 +26,7 @@ export const NAV = [
 const TITLES: Record<string, string> = {
   "/home": "Home",
   "/battle": "Battle Arena",
+  "/clans": "Clans & War Arena",
   "/tournaments": "Tournaments",
   "/cbt": "CBT Practice",
   "/courses": "Course Directory",
@@ -55,7 +56,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }, [fb, user]);
 
-  // Settle results of battles the player left early (e.g. eliminated in Rush) once they finish.
   useEffect(() => {
     if (!fb || !user || inMatch) return;
     void settlePending(fb.db, user.uid);
@@ -65,13 +65,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen lg:flex">
-      {/* Desktop rail */}
+      {/* Desktop sidebar */}
       <aside className="glass sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r p-4 lg:flex">
         <Link to="/home" className="mb-8 flex items-center gap-3 px-2">
           <BrandMark size={38} />
           <BrandName className="text-lg" />
         </Link>
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-col gap-1 overflow-y-auto">
           {NAV.map((n) => (
             <RailLink key={n.to} to={n.to} label={n.label} icon={n.icon} active={pathname.startsWith(n.to)} />
           ))}
@@ -127,16 +127,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {!inMatch && (
           <nav className="glass pb-safe fixed inset-x-0 bottom-0 z-40 border-t lg:hidden">
-            <div className="mx-auto grid max-w-xl grid-cols-5 px-1 pt-2">
-              {NAV.map((n) => {
+            <div className="mx-auto grid max-w-xl grid-cols-5 gap-y-1 px-1 pt-1.5">
+              {NAV.slice(0, 10).map((n) => {
                 const active = pathname.startsWith(n.to);
                 const Icon = n.icon;
                 return (
-                  <Link key={n.to} to={n.to} className="pressable flex flex-col items-center gap-1 py-1">
-                    <span className={cn("grid h-8 w-12 place-items-center rounded-full transition-colors", active ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground")}>
-                      <Icon className="size-5" />
+                  <Link key={n.to} to={n.to} className="pressable flex flex-col items-center gap-0.5 py-1">
+                    <span className={cn("grid h-7 w-10 place-items-center rounded-full transition-colors", active ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground")}>
+                      <Icon className="size-4" />
                     </span>
-                    <span className={cn("text-[11px] font-semibold", active ? "text-foreground" : "text-muted-foreground")}>{n.label}</span>
+                    <span className={cn("text-[10px] font-semibold", active ? "text-foreground" : "text-muted-foreground")}>{n.label}</span>
                   </Link>
                 );
               })}
