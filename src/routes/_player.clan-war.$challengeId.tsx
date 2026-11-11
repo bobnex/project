@@ -10,8 +10,17 @@ import {
   where,
   type DocumentData,
 } from "firebase/firestore";
-import { ArrowLeft, Crown, Loader2, Play, Shield, Swords, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Crown,
+  Loader2,
+  Play,
+  Shield,
+  Swords,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FullLoader } from "@/components/game/ui";
@@ -28,10 +37,12 @@ type WarChallenge = DocumentData & {
   targetClanName: string;
   targetClanTag: string;
   format: "1v1" | "3v3" | "5v5";
-  status: string;
+  status: "pending" | "accepted" | "rejected" | "starting" | "in_progress";
   challengerRoster?: string[];
   targetRoster?: string[];
   matchId?: string;
+  playerOneUid?: string;
+  playerTwoUid?: string;
   settings?: {
     subject: string;
     secondsPerQuestion: number;
@@ -168,33 +179,37 @@ function ClanWarWaitingRoom() {
     );
   }, [fb, ownClanId]);
 
+  const roleMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
+
+  const formatRosterSize = (format: "1v1" | "3v3" | "5v5") => {
+    if (format === "1v1") return 1;
+    if (format === "3v3") return 3;
+    return 5;
+  };
+
+  const expectedRosterSize = challenge ? formatRosterSize(challenge.format) : 1;
+
   const challengerRoster = challenge?.challengerRoster ?? [];
   const targetRoster = challenge?.targetRoster ?? [];
   const myRoster =
     ownClanId === challenge?.challengerClanId
       ? challengerRoster
       : targetRoster;
-  const opponentRoster =
-    ownClanId === challenge?.challengerClanId
-      ? targetRoster
-      : challengerRoster;
-
   const isInvitingClan = ownClanId === challenge?.challengerClanId;
   const canConfigure =
     isInvitingClan &&
     !!membership &&
     canPerformClanAction(membership.role, "battle");
 
-  const memberByUid = useMemo(
-    () => new Map(members.map((member) => [member.uid, member])),
-    [members],
-  );
-
-  // Players selected for the actual classic match are sent to its existing route.
   useEffect(() => {
     if (
       !challenge?.matchId ||
       !user ||
+      !challenge.playerOneUid ||
+      !challenge.playerTwoUid ||
       ![challenge.playerOneUid, challenge.playerTwoUid].includes(user.uid)
     ) {
       return;
@@ -204,7 +219,13 @@ function ClanWarWaitingRoom() {
       to: "/match/$matchId",
       params: { matchId: challenge.matchId },
     });
-  }, [challenge?.matchId, challenge?.playerOneUid, challenge?.playerTwoUid, user, navigate]);
+  }, [
+    challenge?.matchId,
+    challenge?.playerOneUid,
+    challenge?.playerTwoUid,
+    user,
+    navigate,
+  ]);
 
   if (loading) return <FullLoader label="Loading clan war room" />;
 
@@ -298,10 +319,10 @@ function ClanWarWaitingRoom() {
       membership.clanId === challenge.challengerClanId
         ? "challengerRoster"
         : "targetRoster";
-    const maxRoster = Number(challenge.format.replace("v", ""));
 
     if (currentRoster.includes(user.uid)) return;
-    if (currentRoster.length >= maxRoster) {
+
+    if (currentRoster.length >= expectedRosterSize) {
       toast.error(`This clan's ${challenge.format} roster is full.`);
       return;
     }
@@ -336,7 +357,7 @@ function ClanWarWaitingRoom() {
 
         const roster = (data[field] ?? []) as string[];
         if (roster.includes(user.uid)) return;
-        if (roster.length >= maxRoster) {
+        if (roster.length >= expectedRosterSize) {
           throw new Error("Your clan's roster is full.");
         }
 
@@ -358,17 +379,17 @@ function ClanWarWaitingRoom() {
 
     const challengerPlayers = challenge.challengerRoster ?? [];
     const targetPlayers = challenge.targetRoster ?? [];
-    if (!challengerPlayers.length || !targetPlayers.length) {
-      toast.error("Each clan needs at least one player in its roster.");
+
+    const expected = expectedRosterSize;
+    if (challengerPlayers.length < expected || targetPlayers.length < expected) {
+      toast.error(`Both clans need ${expected} selected players in the roster.`);
       return;
     }
 
-    const seconds = Math.max(5, Math.min(120, Number(secondsPerQuestion) || 15));
-    const count = Math.max(3, Math.min(50, Number(questionCount) || 20));
     const settings = {
-      subject: subject.trim() || "all",
-      secondsPerQuestion: seconds,
-      questionCount: count,
+      subject: (subject || "all").trim() || "all",
+      secondsPerQuestion: Math.max(5, Math.min(120, Number(secondsPerQuestion) || 15)),
+      questionCount: Math.max(3, Math.min(50, Number(questionCount) || 20)),
     };
 
     setBusy(true);
@@ -377,36 +398,23 @@ function ClanWarWaitingRoom() {
     try {
       await runTransaction(fb.db, async (transaction) => {
         const challengeRef = doc(fb.db, "clanBattles", challenge.id);
-        const hostMembershipRef = doc(
-          fb.db,
-          "clanMembers",
-          `${challenge.challengerClanId}_${user.uid}`,
-        );
 
-        const [challengeSnapshot, hostMembershipSnapshot] = await Promise.all([
-          transaction.get(challengeRef),
-          transaction.get(hostMembershipRef),
-        ]);
+        const [challengeSnapshot] = await Promise.all([transaction.get(challengeRef)]);
 
-        if (!hostMembershipSnapshot.exists()) {
-          throw new Error("Only an inviting-clan officer can configure this war.");
-        }
-
-        const role = hostMembershipSnapshot.data().role;
-        if (!canPerformClanAction(role, "battle")) {
-          throw new Error("Your clan role cannot start a war.");
-        }
-
-        if (!challengeSnapshot.exists() || challengeSnapshot.data().status !== "accepted") {
-          throw new Error("This war is not ready to start.");
+        if (!challengeSnapshot.exists()) {
+          throw new Error("This war is no longer available.");
         }
 
         const current = challengeSnapshot.data();
+        if (current.status !== "accepted") {
+          throw new Error("This war is not ready to start.");
+        }
+
         if (
-          !(current.challengerRoster as string[] | undefined)?.length ||
-          !(current.targetRoster as string[] | undefined)?.length
+          (current.challengerRoster ?? []).length < expected ||
+          (current.targetRoster ?? []).length < expected
         ) {
-          throw new Error("Each clan needs a player in its roster.");
+          throw new Error(`Both clans must have ${expected} selected players.`);
         }
 
         transaction.update(challengeRef, {
@@ -415,18 +423,13 @@ function ClanWarWaitingRoom() {
         });
       });
 
-      // The current match engine runs a classic 1v1. The first member
-      // registered by each clan represents their side for this duel.
       const playerOneUid = challengerPlayers[0]!;
       const playerTwoUid = targetPlayers[0]!;
+
       const playerOneName =
-        playerOneUid === user.uid
-          ? profile.username
-          : memberByUid.get(playerOneUid)?.username ?? "Challenger";
+        roleMap.get(playerOneUid)?.username ?? profile.username;
       const playerTwoName =
-        playerTwoUid === user.uid
-          ? profile.username
-          : memberByUid.get(playerTwoUid)?.username ?? "Opponent";
+        roleMap.get(playerTwoUid)?.username ?? "Clan opponent";
 
       const room = await createRoom(
         fb.db,
@@ -439,6 +442,7 @@ function ClanWarWaitingRoom() {
           questionCount: settings.questionCount,
         },
       );
+
       createdMatchId = room.id;
 
       await joinMatch(fb.db, room.id, playerTwoUid, playerTwoName);
@@ -460,7 +464,7 @@ function ClanWarWaitingRoom() {
         startedAt: Date.now(),
       });
 
-      await navigate({
+      void navigate({
         to: "/match/$matchId",
         params: { matchId: room.id },
       });
@@ -503,8 +507,8 @@ function ClanWarWaitingRoom() {
             {challenge.targetClanName}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {challenge.format} roster · Accepted war · Waiting for the inviting
-            clan to configure and start the duel.
+            {challenge.format} roster · Accepted war · Waiting for the selected
+            members to complete each side.
           </p>
         </div>
       </section>
@@ -516,7 +520,7 @@ function ClanWarWaitingRoom() {
               ? challengerRoster
               : targetRoster;
           const isMySide = clanId === membership.clanId;
-          const maxRoster = Number(challenge.format.replace("v", ""));
+          const maxRoster = expectedRosterSize;
 
           return (
             <div key={clanId} className="surface-card space-y-3 p-4">
@@ -536,13 +540,13 @@ function ClanWarWaitingRoom() {
                     >
                       {index === 0 && <Crown className="size-4 text-warning" />}
                       <span className="truncate">
-                        {memberByUid.get(uid)?.username ??
+                        {roleMap.get(uid)?.username ??
                           (uid === user.uid ? profile.username : "Clan member")}
                         {uid === user.uid ? " (you)" : ""}
                       </span>
                       {index === 0 && (
                         <span className="ml-auto text-[10px] text-muted-foreground">
-                          First duel
+                          Lead slot
                         </span>
                       )}
                     </div>
@@ -580,7 +584,7 @@ function ClanWarWaitingRoom() {
               Inviting clan match settings
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              These settings are shared with both clans when the battle starts.
+              These settings are shared when the battle starts.
             </p>
           </div>
 
@@ -594,6 +598,7 @@ function ClanWarWaitingRoom() {
                 disabled={busy}
               />
             </label>
+
             <label className="space-y-1 text-xs font-semibold">
               Seconds per question
               <Input
@@ -607,6 +612,7 @@ function ClanWarWaitingRoom() {
                 disabled={busy}
               />
             </label>
+
             <label className="space-y-1 text-xs font-semibold">
               Question count
               <Input
@@ -622,19 +628,12 @@ function ClanWarWaitingRoom() {
             </label>
           </div>
 
-          <div className="rounded-lg border border-warning/25 bg-warning/5 p-3 text-xs text-muted-foreground">
-            The existing battle engine runs a single 1v1 classic match. For
-            3v3 or 5v5, this starts the first duel between the first roster
-            member from each clan; a complete multi-round series is not yet
-            implemented.
-          </div>
-
           <Button
             className="w-full font-bold"
             disabled={
               busy ||
-              challengerRoster.length === 0 ||
-              targetRoster.length === 0
+              challengerRoster.length < expectedRosterSize ||
+              targetRoster.length < expectedRosterSize
             }
             onClick={() => void startWar()}
           >
@@ -643,7 +642,12 @@ function ClanWarWaitingRoom() {
             ) : (
               <Play className="mr-2 size-4" />
             )}
-            {busy ? "Starting war…" : "Start clan war"}
+            {busy
+              ? "Starting war…"
+              : challengerRoster.length >= expectedRosterSize &&
+                  targetRoster.length >= expectedRosterSize
+                ? "Start clan war"
+                : `Waiting for ${expectedRosterSize} players per side`}
           </Button>
         </section>
       )}
