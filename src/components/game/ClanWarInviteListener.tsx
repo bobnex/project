@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   doc,
@@ -7,10 +6,9 @@ import {
   query,
   runTransaction,
   where,
+  type Firestore,
 } from "firebase/firestore";
-import { Award, Check, Shield, Swords, Users, X } from "lucide-react";
-import { toast } from "sonner";
-
+import { Award, Minus, Shield, Swords, TrendingDown, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,24 +18,195 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useApp } from "@/lib/app-context";
-import {
-  INITIAL_ACHIEVEMENTS,
-  type ClanBattleChallenge,
-  type ClanDoc,
-} from "@/lib/clans";
 
-type Invite = ClanBattleChallenge & { id: string };
+type ClanWar = {
+  id: string;
+  challengerClanId: string;
+  challengerClanName: string;
+  challengerClanTag: string;
+  targetClanId: string;
+  targetClanName: string;
+  targetClanTag: string;
+  status: string;
+  matchId?: string;
+  playerOneUid?: string;
+  playerTwoUid?: string;
+  settledAt?: number;
+  winnerClanId?: string;
+  cpChanges?: Record<string, number>;
+};
 
-export function ClanWarInviteListener() {
+type ClanWarResult = ClanWar & {
+  ownClanId: string;
+  ownClanName: string;
+  opponentClanName: string;
+  ownCpChange: number;
+};
+
+async function settleCompletedClanWar(
+  db: Firestore,
+  war: ClanWar,
+): Promise<void> {
+  if (!war.matchId) return;
+
+  const warRef = doc(db, "clanBattles", war.id);
+  const matchRef = doc(db, "matches", war.matchId);
+  const challengerRef = doc(db, "clans", war.challengerClanId);
+  const targetRef = doc(db, "clans", war.targetClanId);
+
+  // Stable activity IDs prevent duplicate history entries if two players
+  // attempt to settle the same result at the same time.
+  const challengerActivityRef = doc(
+    db,
+    "clanActivities",
+    `war_${war.id}_${war.challengerClanId}`,
+  );
+  const targetActivityRef = doc(
+    db,
+    "clanActivities",
+    `war_${war.id}_${war.targetClanId}`,
+  );
+
+  await runTransaction(db, async (transaction) => {
+    const [warSnapshot, matchSnapshot, challengerSnapshot, targetSnapshot] =
+      await Promise.all([
+        transaction.get(warRef),
+        transaction.get(matchRef),
+        transaction.get(challengerRef),
+        transaction.get(targetRef),
+      ]);
+
+    if (!warSnapshot.exists() || !matchSnapshot.exists()) return;
+
+    const currentWar = warSnapshot.data();
+    const match = matchSnapshot.data();
+
+    // Re-reading and checking inside the transaction makes the settlement
+    // idempotent when both clans' clients observe the completed match.
+    if (
+      currentWar.status !== "in_progress" ||
+      match.status !== "completed" ||
+      match.clanWarSettled === true ||
+      !challengerSnapshot.exists() ||
+      !targetSnapshot.exists()
+    ) {
+      return;
+    }
+
+    const playerOneUid =
+      currentWar.playerOneUid ?? match.playerOneUid ?? match.playerIds?.[0];
+    const playerTwoUid =
+      currentWar.playerTwoUid ?? match.playerTwoUid ?? match.playerIds?.[1];
+
+    if (!playerOneUid || !playerTwoUid) return;
+
+    const winners = (match.winnerIds ?? []) as string[];
+    const challengerWon =
+      winners.includes(playerOneUid) && !winners.includes(playerTwoUid);
+    const targetWon =
+      winners.includes(playerTwoUid) && !winners.includes(playerOneUid);
+    const draw = !challengerWon && !targetWon;
+
+    const challengerData = challengerSnapshot.data();
+    const targetData = targetSnapshot.data();
+
+    // CP changes are applied once per completed duel.
+    const challengerRequestedChange = challengerWon ? 25 : targetWon ? -15 : 0;
+    const targetRequestedChange = targetWon ? 25 : challengerWon ? -15 : 0;
+
+    const challengerBefore = Number(challengerData.competitivePoints ?? 0);
+    const targetBefore = Number(targetData.competitivePoints ?? 0);
+    const challengerAfter = Math.max(
+      0,
+      challengerBefore + challengerRequestedChange,
+    );
+    const targetAfter = Math.max(0, targetBefore + targetRequestedChange);
+    const challengerChange = challengerAfter - challengerBefore;
+    const targetChange = targetAfter - targetBefore;
+    const now = Date.now();
+
+    transaction.update(challengerRef, {
+      competitivePoints: challengerAfter,
+      ...(challengerWon
+        ? { totalBattlesWon: Number(challengerData.totalBattlesWon ?? 0) + 1 }
+        : targetWon
+          ? {
+              totalBattlesLost:
+                Number(challengerData.totalBattlesLost ?? 0) + 1,
+            }
+          : {}),
+    });
+
+    transaction.update(targetRef, {
+      competitivePoints: targetAfter,
+      ...(targetWon
+        ? { totalBattlesWon: Number(targetData.totalBattlesWon ?? 0) + 1 }
+        : challengerWon
+          ? { totalBattlesLost: Number(targetData.totalBattlesLost ?? 0) + 1 }
+          : {}),
+    });
+
+    const outcomeText = draw
+      ? "drew"
+      : challengerWon
+        ? "won"
+        : "lost";
+
+    transaction.set(challengerActivityRef, {
+      clanId: war.challengerClanId,
+      type: draw ? "battle_drawn" : challengerWon ? "battle_won" : "battle_lost",
+      description: `Clan war vs [${currentWar.targetClanTag}] ${currentWar.targetClanName}: ${outcomeText}. CP ${challengerChange >= 0 ? "+" : ""}${challengerChange}.`,
+      timestamp: now,
+      warId: war.id,
+      matchId: war.matchId,
+      cpChange: challengerChange,
+      opponentClanId: war.targetClanId,
+    });
+
+    transaction.set(targetActivityRef, {
+      clanId: war.targetClanId,
+      type: draw ? "battle_drawn" : targetWon ? "battle_won" : "battle_lost",
+      description: `Clan war vs [${currentWar.challengerClanTag}] ${currentWar.challengerClanName}: ${draw ? "drew" : targetWon ? "won" : "lost"}. CP ${targetChange >= 0 ? "+" : ""}${targetChange}.`,
+      timestamp: now,
+      warId: war.id,
+      matchId: war.matchId,
+      cpChange: targetChange,
+      opponentClanId: war.challengerClanId,
+    });
+
+    transaction.update(matchRef, { clanWarSettled: true });
+    transaction.update(warRef, {
+      status: "completed",
+      winnerClanId: challengerWon
+        ? war.challengerClanId
+        : targetWon
+          ? war.targetClanId
+          : null,
+      cpChanges: {
+        [war.challengerClanId]: challengerChange,
+        [war.targetClanId]: targetChange,
+      },
+      cpBefore: {
+        [war.challengerClanId]: challengerBefore,
+        [war.targetClanId]: targetBefore,
+      },
+      cpAfter: {
+        [war.challengerClanId]: challengerAfter,
+        [war.targetClanId]: targetAfter,
+      },
+      settledAt: now,
+    });
+  });
+}
+
+export function ClanWarSettlementListener() {
   const { fb, user } = useApp();
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-
+  const sessionStartedAt = useRef(Date.now());
   const [clanId, setClanId] = useState<string | null>(null);
-  const [challenges, setChallenges] = useState<Invite[]>([]);
-  const [challenger, setChallenger] = useState<ClanDoc | null>(null);
-  const [achievementIds, setAchievementIds] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [challengerWars, setChallengerWars] = useState<ClanWar[]>([]);
+  const [targetWars, setTargetWars] = useState<ClanWar[]>([]);
+  const [result, setResult] = useState<ClanWarResult | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (!fb || !user) {
@@ -58,315 +227,183 @@ export function ClanWarInviteListener() {
 
   useEffect(() => {
     if (!fb || !clanId) {
-      setChallenges([]);
+      setChallengerWars([]);
+      setTargetWars([]);
       return;
     }
 
-    return onSnapshot(
-      collection(fb.db, "clanBattles"),
-      (snapshot) => {
-        const relevant = snapshot.docs
-          .map((item) => ({ ...item.data(), id: item.id }) as Invite)
-          .filter(
-            (challenge) =>
-              challenge.challengerClanId === clanId ||
-              challenge.targetClanId === clanId,
-          )
-          .sort((a, b) => b.createdAt - a.createdAt);
-
-        setChallenges(relevant);
-      },
-      () => setChallenges([]),
-    );
-  }, [fb, clanId]);
-
-  const incomingInvite =
-    challenges.find(
-      (challenge) =>
-        challenge.targetClanId === clanId && challenge.status === "pending",
-    ) ?? null;
-
-  useEffect(() => {
-    const accepted = challenges.find(
-      (challenge) =>
-        (challenge.status === "accepted" || challenge.status === "starting") &&
-        (challenge.challengerClanId === clanId ||
-          challenge.targetClanId === clanId),
-    );
-
-    if (!accepted || pathname.startsWith("/clan-war/")) return;
-
-    void navigate({
-      to: "/clan-war/$challengeId",
-      params: { challengeId: accepted.id },
-    });
-  }, [challenges, clanId, pathname, navigate]);
-
-  useEffect(() => {
-    if (!fb || !incomingInvite) {
-      setChallenger(null);
-      setAchievementIds([]);
-      return;
-    }
-
-    const unsubscribeClan = onSnapshot(
-      doc(fb.db, "clans", incomingInvite.challengerClanId),
-      (snapshot) => {
-        setChallenger(
-          snapshot.exists()
-            ? ({ ...snapshot.data(), id: snapshot.id } as ClanDoc)
-            : null,
-        );
-      },
-      () => setChallenger(null),
-    );
-
-    const unsubscribeAchievements = onSnapshot(
+    const unsubscribeChallenger = onSnapshot(
       query(
-        collection(fb.db, "clanUnlockedAchievements"),
-        where("clanId", "==", incomingInvite.challengerClanId),
+        collection(fb.db, "clanBattles"),
+        where("challengerClanId", "==", clanId),
       ),
       (snapshot) => {
-        setAchievementIds(
-          snapshot.docs
-            .map((item) => item.data().achievementId as string | undefined)
-            .filter((id): id is string => !!id),
+        setChallengerWars(
+          snapshot.docs.map(
+            (item) => ({ ...item.data(), id: item.id }) as ClanWar,
+          ),
         );
       },
-      () => setAchievementIds([]),
+      () => setChallengerWars([]),
+    );
+
+    const unsubscribeTarget = onSnapshot(
+      query(
+        collection(fb.db, "clanBattles"),
+        where("targetClanId", "==", clanId),
+      ),
+      (snapshot) => {
+        setTargetWars(
+          snapshot.docs.map(
+            (item) => ({ ...item.data(), id: item.id }) as ClanWar,
+          ),
+        );
+      },
+      () => setTargetWars([]),
     );
 
     return () => {
-      unsubscribeClan();
-      unsubscribeAchievements();
+      unsubscribeChallenger();
+      unsubscribeTarget();
     };
-  }, [fb, incomingInvite?.id, incomingInvite?.challengerClanId]);
+  }, [fb, clanId]);
 
-  async function respond(accept: boolean) {
-    if (!fb || !user || !clanId || !incomingInvite || busy) return;
+  const wars = useMemo(() => {
+    const byId = new Map<string, ClanWar>();
+    for (const war of [...challengerWars, ...targetWars]) byId.set(war.id, war);
+    return [...byId.values()];
+  }, [challengerWars, targetWars]);
 
-    setBusy(true);
-    try {
-      await runTransaction(fb.db, async (transaction) => {
-        const challengeRef = doc(fb.db, "clanBattles", incomingInvite.id);
-        const membershipRef = doc(
-          fb.db,
-          "clanMembers",
-          `${clanId}_${user.uid}`,
-        );
+  useEffect(() => {
+    if (!fb) return;
 
-        const [challengeSnapshot, membershipSnapshot] = await Promise.all([
-          transaction.get(challengeRef),
-          transaction.get(membershipRef),
-        ]);
+    const activeWars = wars.filter(
+      (war) => war.status === "in_progress" && !!war.matchId,
+    );
 
-        if (
-          !membershipSnapshot.exists() ||
-          membershipSnapshot.data().clanId !== clanId
-        ) {
-          throw new Error("You must belong to the invited clan to respond.");
-        }
-
-        if (!challengeSnapshot.exists()) {
-          throw new Error("This invitation is no longer available.");
-        }
-
-        const challenge = challengeSnapshot.data();
-        if (
-          challenge.targetClanId !== clanId ||
-          challenge.status !== "pending"
-        ) {
-          throw new Error("This invitation has already been resolved.");
-        }
-
-        transaction.update(challengeRef, {
-          status: accept ? "accepted" : "rejected",
-          resolvedAt: Date.now(),
+    const unsubscribers = activeWars.map((war) =>
+      onSnapshot(doc(fb.db, "matches", war.matchId!), (snapshot) => {
+        if (!snapshot.exists() || snapshot.data().status !== "completed") return;
+        void settleCompletedClanWar(fb.db, war).catch(() => {
+          // A later snapshot or another clan member can retry the idempotent
+          // transaction if Firestore is temporarily unavailable.
         });
-      });
+      }),
+    );
 
-      toast.success(
-        accept
-          ? "War invitation accepted. Opening the clan war waiting room."
-          : "War invitation rejected.",
-      );
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [fb, wars]);
 
-      if (accept) {
-        void navigate({
-          to: "/clan-war/$challengeId",
-          params: { challengeId: incomingInvite.id },
-        });
-      }
-    } catch (error) {
-      toast.error(
-        (error as Error).message || "Could not respond to the invitation.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    if (!clanId || dismissed) return;
 
-  if (!incomingInvite) return null;
+    const completed = wars.find(
+      (war) =>
+        war.status === "completed" &&
+        typeof war.settledAt === "number" &&
+        war.settledAt >= sessionStartedAt.current &&
+        war.cpChanges,
+    );
 
-  const unlockedAchievements = INITIAL_ACHIEVEMENTS.filter((achievement) =>
-    achievementIds.includes(achievement.id),
-  ).slice(0, 3);
+    if (!completed) return;
+
+    const ownClanId =
+      completed.challengerClanId === clanId
+        ? completed.challengerClanId
+        : completed.targetClanId;
+    const opponentClanName =
+      completed.challengerClanId === ownClanId
+        ? completed.targetClanName
+        : completed.challengerClanName;
+
+    setResult({
+      ...completed,
+      ownClanId,
+      ownClanName:
+        completed.challengerClanId === ownClanId
+          ? completed.challengerClanName
+          : completed.targetClanName,
+      opponentClanName,
+      ownCpChange: Number(completed.cpChanges?.[ownClanId] ?? 0),
+    });
+  }, [wars, clanId, dismissed]);
+
+  if (!fb || !user || !result) return null;
+
+  const change = result.ownCpChange;
+  const ChangeIcon =
+    change > 0 ? TrendingUp : change < 0 ? TrendingDown : Minus;
 
   return (
-    <Dialog open onOpenChange={() => {}}>
-      <DialogContent
-        className="max-w-md overflow-hidden p-0"
-        onEscapeKeyDown={(event) => event.preventDefault()}
-        onInteractOutside={(event) => event.preventDefault()}
-      >
-        <div
-          className="relative border-b border-border/60 p-5"
-          style={{
-            background:
-              challenger?.banner ??
-              "linear-gradient(135deg, hsl(var(--primary) / 0.2), hsl(var(--accent) / 0.12))",
-          }}
-        >
-          <div className="absolute inset-0 bg-background/35 backdrop-blur-[2px]" />
-          <div className="relative">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/75 px-3 py-1 text-xs font-bold">
-              <Swords className="size-4 text-primary" />
-              Incoming clan war
-            </div>
-
-            <DialogHeader className="text-left">
-              <DialogTitle className="flex items-center gap-2 text-xl font-black">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border/60 bg-background/80 text-2xl">
-                  {challenger?.emblem ?? "🛡️"}
-                </span>
-                <span>
-                  {incomingInvite.challengerClanName}
-                  <span className="ml-2 text-sm text-primary">
-                    [{incomingInvite.challengerClanTag}]
-                  </span>
-                </span>
-              </DialogTitle>
-              <DialogDescription className="mt-2 text-foreground/80">
-                {challenger?.motto ||
-                  challenger?.description ||
-                  "A rival clan has challenged your team."}
-              </DialogDescription>
-            </DialogHeader>
+    <Dialog
+      open={!dismissed}
+      onOpenChange={(open) => {
+        if (!open) setDismissed(true);
+      }}
+    >
+      <DialogContent className="animate-page max-w-md overflow-hidden p-0">
+        <div className="relative overflow-hidden border-b border-border/60 bg-gradient-to-br from-primary/20 via-background to-accent/15 p-6 text-center">
+          <div className="absolute -right-7 -top-8 animate-pulse">
+            <Swords className="size-32 text-primary/10" />
           </div>
+          <div className="relative mx-auto grid size-16 animate-pop place-items-center rounded-2xl border border-primary/30 bg-primary/10">
+            <Award className="size-8 text-warning" />
+          </div>
+          <DialogHeader className="relative mt-3">
+            <DialogTitle className="text-2xl font-black">
+              Clan war complete
+            </DialogTitle>
+            <DialogDescription>
+              {result.ownClanName} vs {result.opponentClanName}
+            </DialogDescription>
+          </DialogHeader>
         </div>
 
         <div className="space-y-4 p-5">
-          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Proposed war format
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-lg font-black">
-              <Swords className="size-4 text-primary" />
-              {incomingInvite.format}
-            </div>
-          </div>
-
-          <section aria-label="Challenger clan overview">
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              <Shield className="size-4 text-primary" />
-              Clan overview
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <Overview
-                label="Level"
-                value={challenger ? `${challenger.level}` : "—"}
-              />
-              <Overview
-                label="Competitive points"
-                value={challenger ? `${challenger.competitivePoints} CP` : "—"}
-              />
-              <Overview
-                label="Members"
-                value={
-                  challenger
-                    ? `${challenger.memberCount}/${challenger.maxMembers}`
-                    : "—"
-                }
-              />
-              <Overview
-                label="War record"
-                value={
-                  challenger
-                    ? `${challenger.totalBattlesWon}W – ${challenger.totalBattlesLost}L`
-                    : "—"
-                }
-              />
-            </div>
-          </section>
-
-          <section aria-label="Challenger achievements">
-            <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              <Award className="size-4 text-warning" />
-              Achievements
-              {challenger && (
-                <span className="ml-auto normal-case tracking-normal">
-                  {challenger.achievementsUnlockedCount} unlocked
-                </span>
-              )}
-            </h3>
-
-            {unlockedAchievements.length ? (
-              <div className="space-y-2">
-                {unlockedAchievements.map((achievement) => (
-                  <div
-                    key={achievement.id}
-                    className="flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 p-2.5"
-                  >
-                    <Award className="size-4 text-warning" />
-                    <span className="text-sm font-bold">{achievement.title}</span>
-                    <span className="ml-auto text-[10px] capitalize text-muted-foreground">
-                      {achievement.rarity}
-                    </span>
-                  </div>
-                ))}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <Shield className="size-4 text-primary" />
+                Your clan CP
               </div>
-            ) : (
-              <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
-                No unlocked achievements to display yet.
-              </p>
-            )}
-          </section>
+              <div className="mt-2 text-2xl font-black">
+                {Number(result.cpAfter?.[result.ownClanId] ?? 0)}
+              </div>
+            </div>
 
-          <div className="flex gap-2 border-t border-border/60 pt-4">
-            <Button
-              variant="outline"
-              className="flex-1"
-              disabled={busy}
-              onClick={() => void respond(false)}
-            >
-              <X className="mr-2 size-4" />
-              Reject
-            </Button>
-            <Button
-              className="flex-1 font-bold"
-              disabled={busy}
-              onClick={() => void respond(true)}
-            >
-              <Check className="mr-2 size-4" />
-              {busy ? "Responding…" : "Accept war"}
-            </Button>
+            <div className="rounded-xl border border-primary/25 bg-primary/5 p-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <ChangeIcon className="size-4 text-primary" />
+                CP change
+              </div>
+              <div
+                className={`mt-2 text-2xl font-black ${
+                  change > 0
+                    ? "text-emerald-500"
+                    : change < 0
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                }`}
+              >
+                {change > 0 ? "+" : ""}
+                {change}
+              </div>
+            </div>
           </div>
+
+          <p className="text-center text-xs text-muted-foreground">
+            The result has been added to your clan’s war history and battle
+            record.
+          </p>
+
+          <Button
+            className="w-full font-bold"
+            onClick={() => setDismissed(true)}
+          >
+            Back to the game
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Overview({ label, value }: { label: string; value: string }) {
-  const Icon = label === "Members" ? Users : Shield;
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-card/60 p-2.5">
-      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <Icon className="size-3" />
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-black">{value}</div>
-    </div>
   );
 }
