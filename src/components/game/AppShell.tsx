@@ -18,6 +18,7 @@ import {
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
+
 import { useApp } from "@/lib/app-context";
 import { settlePending } from "@/lib/engine";
 import { cn } from "@/lib/utils";
@@ -89,12 +90,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen lg:flex">
       <ClanWarInviteListener />
 
-      {/* Desktop sidebar */}
       <aside className="glass sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r p-4 lg:flex">
         <Link to="/home" className="mb-8 flex items-center gap-3 px-2">
           <BrandMark size={38} />
           <BrandName className="text-lg" />
         </Link>
+
         <nav className="flex flex-col gap-1 overflow-y-auto">
           {NAV.map((item) => (
             <RailLink
@@ -110,6 +111,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <RailLink to="/admin" label="Admin" icon={ShieldCheck} active={pathname === "/admin"} />
           )}
         </nav>
+
         {profile && (
           <Link to="/profile" className="surface-card mt-auto flex items-center gap-3 p-3">
             <CosmeticAvatar name={profile.username} wallet={wallet} size={32} />
@@ -129,7 +131,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link to="/home" className="lg:hidden">
               <BrandMark size={32} />
             </Link>
+
             <h1 className="flex-1 truncate text-lg font-bold">{title}</h1>
+
             {profile && (
               <Link
                 to="/shop"
@@ -140,6 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <span className="tabular">{wallet.balance}</span>
               </Link>
             )}
+
             <Link
               to="/notifications"
               aria-label="Notifications"
@@ -152,6 +157,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
               )}
             </Link>
+
             {isAdmin && (
               <Link
                 to="/admin"
@@ -161,6 +167,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <ShieldCheck className="size-5" />
               </Link>
             )}
+
             <Link
               to="/settings"
               aria-label="Settings"
@@ -187,6 +194,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               {NAV.slice(0, 10).map((item) => {
                 const active = pathname.startsWith(item.to);
                 const Icon = item.icon;
+
                 return (
                   <Link
                     key={item.to}
