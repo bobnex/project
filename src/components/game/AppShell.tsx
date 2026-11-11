@@ -26,6 +26,7 @@ import { BrandMark, BrandName } from "./Brand";
 import { CosmeticAvatar } from "./CosmeticPreview";
 import { useCosmetics } from "@/lib/cosmetics-store";
 import { ClanWarInviteListener } from "./ClanWarInviteListener";
+import { ClanWarSettlementListener } from "./ClanWarSettlementListener";
 
 export const NAV = [
   { to: "/home", label: "Home", icon: House },
@@ -66,8 +67,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!fb || !user) return;
+
     return onSnapshot(
-      query(collection(fb.db, "users", user.uid, "notifications"), where("read", "==", false)),
+      query(
+        collection(fb.db, "users", user.uid, "notifications"),
+        where("read", "==", false),
+      ),
       (snapshot) => setUnread(snapshot.size),
       () => {},
     );
@@ -84,11 +89,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "Tournament"
       : pathname.startsWith("/cbt")
         ? "CBT Exam"
-        : "Battle");
+        : pathname.startsWith("/clan-war")
+          ? "Clan War Waiting Room"
+          : "Battle");
 
   return (
     <div className="min-h-screen lg:flex">
       <ClanWarInviteListener />
+      <ClanWarSettlementListener />
 
       <aside className="glass sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r p-4 lg:flex">
         <Link to="/home" className="mb-8 flex items-center gap-3 px-2">
@@ -106,17 +114,32 @@ export function AppShell({ children }: { children: ReactNode }) {
               active={pathname.startsWith(item.to)}
             />
           ))}
-          <RailLink to="/settings" label="Settings" icon={Settings} active={pathname === "/settings"} />
+          <RailLink
+            to="/settings"
+            label="Settings"
+            icon={Settings}
+            active={pathname === "/settings"}
+          />
           {isAdmin && (
-            <RailLink to="/admin" label="Admin" icon={ShieldCheck} active={pathname === "/admin"} />
+            <RailLink
+              to="/admin"
+              label="Admin"
+              icon={ShieldCheck}
+              active={pathname === "/admin"}
+            />
           )}
         </nav>
 
         {profile && (
-          <Link to="/profile" className="surface-card mt-auto flex items-center gap-3 p-3">
+          <Link
+            to="/profile"
+            className="surface-card mt-auto flex items-center gap-3 p-3"
+          >
             <CosmeticAvatar name={profile.username} wallet={wallet} size={32} />
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{profile.username}</div>
+              <div className="truncate text-sm font-semibold">
+                {profile.username}
+              </div>
               <div className="text-muted-foreground text-xs">
                 Level {profile.level} · {profile.rating} SR
               </div>
