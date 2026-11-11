@@ -46,7 +46,7 @@ export interface ClanAnnouncement {
 export interface ClanActivity {
   id: string;
   clanId: string;
-  type: "member_joined" | "member_left" | "battle_won" | "battle_lost" | "mission_completed" | "achievement_unlocked" | "level_up";
+  type: "member_joined" | "member_left" | "battle_won" | "battle_lost" | | "battle_drawn" | "mission_completed" | "achievement_unlocked" | "level_up";
   description: string;
   actorName?: string;
   timestamp: number;
