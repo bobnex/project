@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { Award, Check, Shield, Swords, Users, X } from "lucide-react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,7 +20,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useApp } from "@/lib/app-context";
-import { INITIAL_ACHIEVEMENTS, type ClanBattleChallenge, type ClanDoc } from "@/lib/clans";
+import {
+  INITIAL_ACHIEVEMENTS,
+  type ClanBattleChallenge,
+  type ClanDoc,
+} from "@/lib/clans";
 
 type Invite = ClanBattleChallenge & { id: string };
 
@@ -51,7 +56,6 @@ export function ClanWarInviteListener() {
     );
   }, [fb, user]);
 
-  // Listen to both incoming invitations and accepted wars for this clan.
   useEffect(() => {
     if (!fb || !clanId) {
       setChallenges([]);
@@ -82,7 +86,6 @@ export function ClanWarInviteListener() {
         challenge.targetClanId === clanId && challenge.status === "pending",
     ) ?? null;
 
-  // Once accepted, route members of both clans into the shared waiting room.
   useEffect(() => {
     const accepted = challenges.find(
       (challenge) =>
@@ -94,8 +97,8 @@ export function ClanWarInviteListener() {
     if (!accepted || pathname.startsWith("/clan-war/")) return;
 
     void navigate({
-      to: "/clan-war/$challengeId" as never,
-      params: { challengeId: accepted.id } as never,
+      to: "/clan-war/$challengeId",
+      params: { challengeId: accepted.id },
     });
   }, [challenges, clanId, pathname, navigate]);
 
@@ -190,8 +193,8 @@ export function ClanWarInviteListener() {
 
       if (accept) {
         void navigate({
-          to: "/clan-war/$challengeId" as never,
-          params: { challengeId: incomingInvite.id } as never,
+          to: "/clan-war/$challengeId",
+          params: { challengeId: incomingInvite.id },
         });
       }
     } catch (error) {
@@ -269,7 +272,10 @@ export function ClanWarInviteListener() {
               Clan overview
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              <Overview label="Level" value={challenger ? `${challenger.level}` : "—"} />
+              <Overview
+                label="Level"
+                value={challenger ? `${challenger.level}` : "—"}
+              />
               <Overview
                 label="Competitive points"
                 value={challenger ? `${challenger.competitivePoints} CP` : "—"}
