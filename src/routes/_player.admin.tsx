@@ -56,7 +56,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { DEFAULT_RANKED, seasonId, type RankedConfig } from "@/lib/ranked";
 import { getRankedConfig, saveRankedConfig } from "@/lib/ranked-store";
-import { normalizePayment, type PaymentDetails } from "@/lib/payment";
+import { normalizePayment, normalizeSponsors, type Sponsor, type PaymentDetails } from "@/lib/payment";
 import { useApp } from "@/lib/app-context";
 import { pageMeta } from "@/lib/meta";
 import { addSubject, listSubjects, removeSubject, updateSubject, type SubjectDoc } from "@/lib/subjects";
@@ -1015,17 +1015,17 @@ function PaymentDetailsCard() {
 
 function SponsorsTab() {
   const { fb, settings } = useApp();
-  const [sponsors, setSponsors] = useState<string[]>(settings.sponsors ?? []);
+  const [sponsors, setSponsors] = useState<Sponsor[]>(settings.sponsors ?? []);
   const [next, setNext] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => setSponsors(settings.sponsors ?? []), [settings.sponsors]);
 
-  async function save(list: string[]) {
+  async function save(list: Sponsor[]) {
     if (!fb) return;
     setSaving(true);
     try {
-      await setDoc(doc(fb.db, "settings", "app"), { sponsors: list }, { merge: true });
+      await setDoc(doc(fb.db, "settings", "app"), { sponsors: normalizeSponsors(list) }, { merge: true });
       setSponsors(list);
       toast.success("Sponsors updated");
     } catch (e) { toast.error((e as Error).message); }
@@ -1035,8 +1035,8 @@ function SponsorsTab() {
   function add() {
     if (!next.trim()) return;
     const clean = next.trim();
-    if (sponsors.includes(clean)) return toast.error("Already in sponsors list");
-    const updated = [...sponsors, clean];
+    if (sponsors.some(s => s.name.toLowerCase() === clean.toLowerCase())) return toast.error("Already in sponsors list");
+    const updated = [...sponsors, { id: crypto.randomUUID(), name: clean, tagline: "", url: "", active: true }];
     setNext("");
     save(updated);
   }
@@ -1061,7 +1061,7 @@ function SponsorsTab() {
         ) : (
           sponsors.map((s, i) => (
             <Badge key={i} variant="secondary" className="flex items-center gap-1.5 py-1 text-sm">
-              {s}
+              {s.name}
               <button type="button" onClick={() => remove(i)} className="hover:text-destructive">
                 <X className="size-3" />
               </button>

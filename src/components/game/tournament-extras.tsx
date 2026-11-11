@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { Crown, Eye, Gift, Medal, Radio, Save, Sparkles, Swords, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -183,7 +183,7 @@ export function Podium({ fixtures }: { fixtures: Fixture[] }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    if (p.first) {
+    if (p.first && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const cancel = triggerConfetti(canvasRef.current);
       return cancel;
     }
@@ -202,7 +202,7 @@ export function Podium({ fixtures }: { fixtures: Fixture[] }) {
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" />
       <div className="mb-4 flex items-center justify-center gap-2 font-display text-lg font-extrabold tracking-wide">
         <Trophy className="text-warning size-6 animate-float" />
-        <span className="bg-gradient-to-r from-warning via-amber-200 to-warning bg-clip-text text-transparent">
+        <span className="bg-gradient-to-r from-warning via-accent to-warning bg-clip-text text-transparent">
           Tournament Champions
         </span>
       </div>
@@ -329,21 +329,10 @@ export function TrophyCabinet({ uid }: { uid: string }) {
       query(collection(fb.db, "t_players"), where("uid", "==", uid), where("status", "==", "champion")),
       (s) => {
         const ids = s.docs.map((d) => d.data().tournamentId as string);
-        Promise.all(
-          ids.map(
-            (id) =>
-              new Promise<{ id: string; name: string }>((res) => {
-                const off = onSnapshot(
-                  doc(fb.db, "tournaments", id),
-                  (t) => {
-                    off();
-                    res({ id, name: (t.data()?.name as string) ?? "Tournament" });
-                  },
-                  () => res({ id, name: "Tournament" })
-                );
-              })
-          )
-        ).then(setWins);
+        Promise.all([...new Set(ids)].map(async id => {
+          const t = await getDoc(doc(fb.db, "tournaments", id));
+          return { id, name: String(t.data()?.name ?? "Tournament") };
+        })).then(setWins).catch(() => setWins([]));
       },
       () => {}
     );
@@ -479,7 +468,7 @@ export function LiveWatchDialog({ fixture, onClose }: { fixture: Fixture | null;
             </div>
 
             {/* Live Question Display */}
-            {activeQuestion && m.status === "live" ? (
+            {activeQuestion && m.status === "active" ? (
               <div className="surface-card space-y-3 p-4">
                 <div className="text-muted-foreground text-xs font-bold uppercase tracking-wider">
                   Active Question #{currentNum}

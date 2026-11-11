@@ -1,4 +1,12 @@
-# Favoje Battle roadmap
+# Juvora development roadmap
+
+## Current delivery
+- [ ] Repair tournament page controls, spectators, loading errors and trophy display; run regression tests.
+- [ ] Implement Firebase-backed clan foundation, hierarchy, headquarters, invitations and audited membership.
+- [ ] Implement clan wars using existing matches, verified progression, missions, manual achievement rewards and leaderboards.
+- [ ] Integrate clan seasons, legacy, reports, admin configuration and navigation.
+- [ ] Test rules and security boundaries; verify public rendering and authenticated flows where access is available.
+- [ ] Activate trusted clan operations: requires a Firebase service-account secret and owner deployment of additive restrictive rules.
 
 Current request:
 - Add bank-transfer Juvora coin requests, atomic admin approvals, cosmetics shop and player customizer; verify and document Firebase security deployment requirements.

@@ -15,14 +15,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { CosmeticAvatar } from "@/components/game/CosmeticPreview";
 import { RankBadge } from "@/components/game/RankBadge";
-import { TrophyCabinet } from "@/components/game/TrophyCabinet";
+import { TrophyCabinet } from "@/components/game/tournament-extras";
 import { useApp } from "@/lib/app-context";
 import { DEFAULT_COSMETICS, getCardThemeStyle } from "@/lib/cosmetics";
 import { useCosmetics } from "@/lib/cosmetics-store";
 import { useRankedConfig } from "@/lib/ranked-store";
+import { pageMeta } from "@/lib/meta";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_player/profile")({
+  head: () => pageMeta("Player profile", "Your Juvora rank, cosmetics, trophies and battle history."),
   component: Profile,
 });
 

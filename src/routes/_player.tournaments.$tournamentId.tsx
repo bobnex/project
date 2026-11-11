@@ -96,7 +96,7 @@ function TournamentPage() {
 
   async function play(f: Fixture) {
     await run(`play-${f.id}`, async () => {
-      const id = await enterFixture(db, user!.uid, profile!.username, f, t!);
+      const id = await enterFixture(db, user.uid, profile.username, f, t);
       navigate({ to: "/match/$matchId", params: { matchId: id } });
     });
   }
@@ -159,7 +159,7 @@ function TournamentPage() {
           )}
           {t.status === "registration" && registered && (
             <>
-              <Badge variant="outline">{me!.status === "pending" ? "Waiting for approval" : "Registered"}</Badge>
+              <Badge variant="outline">{me?.status === "pending" ? "Waiting for approval" : "Registered"}</Badge>
               <Button
                 variant="outline"
                 size="sm"
@@ -564,7 +564,8 @@ function AdminPanel({
   onDeleted: () => void;
 }) {
   const { fb } = useApp();
-  const db = fb!.db;
+  if (!fb) return null;
+  const db = fb.db;
   const pending = players.filter((p) => p.status === "pending");
 
   return (
@@ -580,7 +581,7 @@ function AdminPanel({
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
-                    onClick={() => run(`app-${p.uid}`, () => adminUpdateParticipant(db, t.id, p.uid, "approved"), "Player approved")}
+                    onClick={() => run(`app-${p.uid}`, () => adminUpdateParticipant(db, t.id, p.uid, { status: "approved" }), "Player approved")}
                   >
                     <Check className="size-4" /> Approve
                   </Button>
@@ -588,7 +589,7 @@ function AdminPanel({
                     size="sm"
                     variant="ghost"
                     disabled={!!busy}
-                    onClick={() => run(`rej-${p.uid}`, () => adminUpdateParticipant(db, t.id, p.uid, "rejected"), "Player declined")}
+                    onClick={() => run(`rej-${p.uid}`, () => adminUpdateParticipant(db, t.id, p.uid, { status: "rejected" }), "Player declined")}
                   >
                     <X className="size-4" /> Decline
                   </Button>
@@ -603,17 +604,17 @@ function AdminPanel({
         <div className="surface-card space-y-3 p-4">
           <div className="flex flex-wrap gap-2">
             {t.status === "registration" && (
-              <Button disabled={!!busy} onClick={() => run("start", () => startTournament(db, t), "Tournament started!")}>
+              <Button disabled={!!busy} onClick={() => run("start", () => startTournament(db, t.id), "Tournament started!")}>
                 <Play className="size-4" /> Start tournament
               </Button>
             )}
             {t.format === "league" && t.status === "running" && (
-              <Button disabled={!!busy} variant="outline" onClick={() => run("end-season", () => endSeason(db, t), "Season ended!")}>
+              <Button disabled={!!busy} variant="outline" onClick={() => run("end-season", () => endSeason(db, t.id), "Season ended!")}>
                 End season
               </Button>
             )}
             {t.format !== "league" && t.status === "running" && (
-              <Button disabled={!!busy} variant="outline" onClick={() => run("advance", () => maybeAdvance(db, t), "Advancement checked.")}>
+              <Button disabled={!!busy} variant="outline" onClick={() => run("advance", () => maybeAdvance(db, t.id), "Advancement checked.")}>
                 <RefreshCw className="size-4" /> Check advancement
               </Button>
             )}
