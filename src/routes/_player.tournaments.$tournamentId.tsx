@@ -2,28 +2,65 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import {
-  ArrowLeft, Award, Eye, CalendarClock, Check, Crown, Loader2, Play, Radio, RefreshCw, ShieldCheck, Swords, Trash2, Trophy, UserMinus, UserPlus, X, Zap,
+  ArrowLeft,
+  Award,
+  CalendarClock,
+  Check,
+  Crown,
+  Eye,
+  Loader2,
+  Play,
+  Radio,
+  RefreshCw,
+  ShieldCheck,
+  Swords,
+  Trash2,
+  Trophy,
+  UserMinus,
+  UserPlus,
+  X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, FullLoader, Section } from "@/components/game/ui";
 import { PlayerAvatar } from "@/components/game/Avatar";
 import { useApp } from "@/lib/app-context";
 import { cn } from "@/lib/utils";
 import { pageMeta } from "@/lib/meta";
-import { BracketTree, LiveWatchDialog, PrizeCard, useOpponentReadyAlert } from "@/components/game/tournament-extras";
+import {
+  BracketTree,
+  LiveWatchDialog,
+  Podium,
+  PrizeCard,
+  useOpponentReadyAlert,
+} from "@/components/game/tournament-extras";
 import { coursePickLabel, parseCoursePick } from "@/lib/course-pick";
 import {
-  adminDeleteFixture, adminRescheduleFixture, adminSetFixtureResult, adminUpdateParticipant, DAY_MS,
-  deleteTournament, endSeason, enterFixture, leaveTournament, maybeAdvance, registerForTournament,
-  startTournament, updateTournament,
+  adminDeleteFixture,
+  adminRescheduleFixture,
+  adminSetFixtureResult,
+  adminUpdateParticipant,
+  DAY_MS,
+  deleteTournament,
+  endSeason,
+  enterFixture,
+  leaveTournament,
+  maybeAdvance,
+  registerForTournament,
+  startTournament,
+  updateTournament,
 } from "@/lib/tournament-engine";
 import {
-  divisionNames, FORMAT_LABELS, STATUS_LABEL, standings, type Fixture, type Tournament, type TournamentPlayer,
+  divisionNames,
+  FORMAT_LABELS,
+  STATUS_LABEL,
+  standings,
+  type Fixture,
+  type Tournament,
+  type TournamentPlayer,
 } from "@/lib/tournament-rules";
 
 export const Route = createFileRoute("/_player/tournaments/$tournamentId")({
@@ -80,7 +117,11 @@ function TournamentPage() {
   if (t === undefined) return <FullLoader />;
   if (t === null) return <Empty icon={Award} title="Tournament not found" text="It may have been removed by an admin." />;
   if (!fb || !user || !profile) return null;
+
   const db = fb.db;
+  const currentUid = user.uid;
+  const currentUsername = profile.username;
+  const currentTournament: Tournament = t;
 
   async function run(key: string, fn: () => Promise<unknown>, ok?: string) {
     setBusy(key);
@@ -96,7 +137,7 @@ function TournamentPage() {
 
   async function play(f: Fixture) {
     await run(`play-${f.id}`, async () => {
-      const id = await enterFixture(db, user.uid, profile.username, f, t);
+      const id = await enterFixture(db, currentUid, currentUsername, f, currentTournament);
       navigate({ to: "/match/$matchId", params: { matchId: id } });
     });
   }
@@ -104,7 +145,7 @@ function TournamentPage() {
   joinRef.current = play;
   const registered = me && me.status !== "rejected";
   const champion = players.find((p) => p.status === "champion");
-  const opponentName = nextMatch ? (nextMatch.aId === user.uid ? nextMatch.bName : nextMatch.aName) : "";
+  const opponentName = nextMatch ? (nextMatch.aId === currentUid ? nextMatch.bName : nextMatch.aName) : "";
 
   return (
     <div className="space-y-5">
@@ -116,16 +157,19 @@ function TournamentPage() {
       <div className="hero-card space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-extrabold">{t.name}</h1>
+            <h1 className="text-2xl font-extrabold">{currentTournament.name}</h1>
             <p className="text-muted-foreground text-sm">
-              {FORMAT_LABELS[t.format]}
-              {t.format === "league" ? ` · Season ${t.season}` : ""} · {coursePickLabel(parseCoursePick(t.subject))} · {t.questionsPerMatch} questions
+              {FORMAT_LABELS[currentTournament.format]}
+              {currentTournament.format === "league" ? ` · Season ${currentTournament.season}` : ""} ·{" "}
+              {coursePickLabel(parseCoursePick(currentTournament.subject))} · {currentTournament.questionsPerMatch} questions
             </p>
           </div>
-          <Badge variant={t.status === "running" ? "default" : "secondary"}>{STATUS_LABEL[t.status]}</Badge>
+          <Badge variant={currentTournament.status === "running" ? "default" : "secondary"}>
+            {STATUS_LABEL[currentTournament.status]}
+          </Badge>
         </div>
 
-        {t.description && <p className="text-sm">{t.description}</p>}
+        {currentTournament.description && <p className="text-sm">{currentTournament.description}</p>}
 
         {/* Feature 1: Golden Champion Announcement Banner */}
         {champion && (
@@ -143,28 +187,28 @@ function TournamentPage() {
 
         {/* Action strip: registration / statuses */}
         <div className="flex flex-wrap items-center gap-2">
-          {t.status === "registration" && !registered && (
+          {currentTournament.status === "registration" && !registered && (
             <Button
               disabled={!!busy}
               onClick={() =>
                 run(
                   "reg",
-                  () => registerForTournament(db, t.id, user.uid, profile.username),
-                  t.requireApproval ? "Request sent — an admin will review it." : "You're in!"
+                  () => registerForTournament(db, currentTournament.id, currentUid, currentUsername),
+                  currentTournament.requireApproval ? "Request sent — an admin will review it." : "You're in!"
                 )
               }
             >
-              <UserPlus className="size-4" /> {t.requireApproval ? "Request to join" : "Join tournament"}
+              <UserPlus className="size-4" /> {currentTournament.requireApproval ? "Request to join" : "Join tournament"}
             </Button>
           )}
-          {t.status === "registration" && registered && (
+          {currentTournament.status === "registration" && registered && (
             <>
               <Badge variant="outline">{me?.status === "pending" ? "Waiting for approval" : "Registered"}</Badge>
               <Button
                 variant="outline"
                 size="sm"
                 disabled={!!busy}
-                onClick={() => run("leave", () => leaveTournament(db, t.id, user.uid), "You left the tournament.")}
+                onClick={() => run("leave", () => leaveTournament(db, currentTournament.id, currentUid), "You left the tournament.")}
               >
                 <UserMinus className="size-4" /> Leave
               </Button>
@@ -172,12 +216,19 @@ function TournamentPage() {
           )}
           {me?.status === "rejected" && <Badge variant="destructive">Your entry was declined</Badge>}
           {me?.status === "eliminated" && <Badge variant="secondary">You were knocked out</Badge>}
-          <span className="text-muted-foreground ml-auto text-sm">{t.participantCount}/{t.maxParticipants} players</span>
+          <span className="text-muted-foreground ml-auto text-sm">
+            {currentTournament.participantCount}/{currentTournament.maxParticipants} players
+          </span>
         </div>
       </div>
 
+      {/* Feature 2: Champions Podium if completed or has finalists */}
+      {(currentTournament.status === "completed" || champion) && (
+        <Podium fixtures={fixtures} />
+      )}
+
       {/* Feature 3: Next Match Ready / Versus Clash Hero Banner */}
-      {nextMatch && t.status === "running" && (
+      {nextMatch && currentTournament.status === "running" && (
         <div className="surface-card border-primary/50 relative overflow-hidden p-5 shadow-md">
           <div className="mb-3 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-primary">
@@ -191,14 +242,12 @@ function TournamentPage() {
           </div>
 
           <div className="flex items-center justify-between gap-3 py-2">
-            {/* Player Avatar */}
             <div className="animate-vs-left flex flex-1 flex-col items-center gap-1">
-              <PlayerAvatar name={profile.username} size={52} />
-              <span className="max-w-28 truncate text-xs font-bold">{profile.username}</span>
+              <PlayerAvatar name={currentUsername} size={52} />
+              <span className="max-w-28 truncate text-xs font-bold">{currentUsername}</span>
               <span className="text-muted-foreground text-[10px]">You</span>
             </div>
 
-            {/* VS Clash Badge */}
             <div className="flex flex-col items-center gap-1 px-2">
               <div className="animate-pop flex size-10 items-center justify-center rounded-full bg-primary font-black text-primary-foreground shadow-lg shadow-primary/25">
                 VS
@@ -206,7 +255,6 @@ function TournamentPage() {
               <span className="text-muted-foreground text-[10px] font-semibold">Round {nextMatch.round}</span>
             </div>
 
-            {/* Opponent Avatar */}
             <div className="animate-vs-right flex flex-1 flex-col items-center gap-1">
               <PlayerAvatar name={opponentName} size={52} />
               <span className="max-w-28 truncate text-xs font-bold">{opponentName}</span>
@@ -230,12 +278,12 @@ function TournamentPage() {
         </div>
       )}
 
-      <PrizeCard t={t} isAdmin={isAdmin} />
+      <PrizeCard t={currentTournament} isAdmin={isAdmin} />
       <LiveWatchDialog fixture={watching} onClose={() => setWatching(null)} />
 
-      <Tabs defaultValue={t.status === "registration" ? "players" : "table"} className="space-y-4">
+      <Tabs defaultValue={currentTournament.status === "registration" ? "players" : "table"} className="space-y-4">
         <TabsList className={cn("grid w-full rounded-xl", isAdmin ? "grid-cols-4" : "grid-cols-3")}>
-          <TabsTrigger value="table">{t.format === "elimination" ? "Bracket" : "Table"}</TabsTrigger>
+          <TabsTrigger value="table">{currentTournament.format === "elimination" ? "Bracket" : "Table"}</TabsTrigger>
           <TabsTrigger value="matches">Matches</TabsTrigger>
           <TabsTrigger value="players">Players</TabsTrigger>
           {isAdmin && (
@@ -245,10 +293,10 @@ function TournamentPage() {
           )}
         </TabsList>
         <TabsContent value="table">
-          <Standings t={t} players={players} fixtures={fixtures} uid={user.uid} onWatch={setWatching} />
+          <Standings t={currentTournament} players={players} fixtures={fixtures} uid={currentUid} onWatch={setWatching} />
         </TabsContent>
         <TabsContent value="matches">
-          <MatchList t={t} fixtures={fixtures} uid={user.uid} busy={busy} onPlay={play} onWatch={setWatching} />
+          <MatchList t={currentTournament} fixtures={fixtures} uid={currentUid} busy={busy} onPlay={play} onWatch={setWatching} />
         </TabsContent>
         <TabsContent value="players">
           <PlayerList players={players} />
@@ -256,7 +304,7 @@ function TournamentPage() {
         {isAdmin && (
           <TabsContent value="admin">
             <AdminPanel
-              t={t}
+              t={currentTournament}
               players={players}
               fixtures={fixtures}
               busy={busy}
