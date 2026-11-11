@@ -1,5 +1,20 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Award, Bell, ClipboardList, Coins, HelpCircle, House, Settings, Shield, ShieldCheck, ShoppingBag, Swords, Trophy, UserRound, Users } from "lucide-react";
+import {
+  Award,
+  Bell,
+  ClipboardList,
+  Coins,
+  HelpCircle,
+  House,
+  Settings,
+  Shield,
+  ShieldCheck,
+  ShoppingBag,
+  Swords,
+  Trophy,
+  UserRound,
+  Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -9,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { BrandMark, BrandName } from "./Brand";
 import { CosmeticAvatar } from "./CosmeticPreview";
 import { useCosmetics } from "@/lib/cosmetics-store";
+import { ClanWarInviteListener } from "./ClanWarInviteListener";
 
 export const NAV = [
   { to: "/home", label: "Home", icon: House },
@@ -51,7 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!fb || !user) return;
     return onSnapshot(
       query(collection(fb.db, "users", user.uid, "notifications"), where("read", "==", false)),
-      (s) => setUnread(s.size),
+      (snapshot) => setUnread(snapshot.size),
       () => {},
     );
   }, [fb, user]);
@@ -61,10 +77,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     void settlePending(fb.db, user.uid);
   }, [fb, user, pathname, inMatch]);
 
-  const title = TITLES[pathname] ?? (pathname.startsWith("/tournaments") ? "Tournament" : pathname.startsWith("/cbt") ? "CBT Exam" : "Battle");
+  const title =
+    TITLES[pathname] ??
+    (pathname.startsWith("/tournaments")
+      ? "Tournament"
+      : pathname.startsWith("/cbt")
+        ? "CBT Exam"
+        : "Battle");
 
   return (
     <div className="min-h-screen lg:flex">
+      <ClanWarInviteListener />
+
       {/* Desktop sidebar */}
       <aside className="glass sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r p-4 lg:flex">
         <Link to="/home" className="mb-8 flex items-center gap-3 px-2">
@@ -72,18 +96,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           <BrandName className="text-lg" />
         </Link>
         <nav className="flex flex-col gap-1 overflow-y-auto">
-          {NAV.map((n) => (
-            <RailLink key={n.to} to={n.to} label={n.label} icon={n.icon} active={pathname.startsWith(n.to)} />
+          {NAV.map((item) => (
+            <RailLink
+              key={item.to}
+              to={item.to}
+              label={item.label}
+              icon={item.icon}
+              active={pathname.startsWith(item.to)}
+            />
           ))}
           <RailLink to="/settings" label="Settings" icon={Settings} active={pathname === "/settings"} />
-          {isAdmin && <RailLink to="/admin" label="Admin" icon={ShieldCheck} active={pathname === "/admin"} />}
+          {isAdmin && (
+            <RailLink to="/admin" label="Admin" icon={ShieldCheck} active={pathname === "/admin"} />
+          )}
         </nav>
         {profile && (
           <Link to="/profile" className="surface-card mt-auto flex items-center gap-3 p-3">
             <CosmeticAvatar name={profile.username} wallet={wallet} size={32} />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{profile.username}</div>
-              <div className="text-muted-foreground text-xs">Level {profile.level} · {profile.rating} SR</div>
+              <div className="text-muted-foreground text-xs">
+                Level {profile.level} · {profile.rating} SR
+              </div>
             </div>
           </Link>
         )}
@@ -97,12 +131,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
             <h1 className="flex-1 truncate text-lg font-bold">{title}</h1>
             {profile && (
-              <Link to="/shop" aria-label="Juvora coin shop" className="bg-muted flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold">
+              <Link
+                to="/shop"
+                aria-label="Juvora coin shop"
+                className="bg-muted flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold"
+              >
                 <Coins className="text-warning size-4" />
                 <span className="tabular">{wallet.balance}</span>
               </Link>
             )}
-            <Link to="/notifications" aria-label="Notifications" className="hover:bg-muted relative grid size-9 place-items-center rounded-full">
+            <Link
+              to="/notifications"
+              aria-label="Notifications"
+              className="hover:bg-muted relative grid size-9 place-items-center rounded-full"
+            >
               <Bell className="size-5" />
               {unread > 0 && (
                 <span className="bg-destructive text-destructive-foreground absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[10px] font-bold">
@@ -111,32 +153,64 @@ export function AppShell({ children }: { children: ReactNode }) {
               )}
             </Link>
             {isAdmin && (
-              <Link to="/admin" aria-label="Admin" className="hover:bg-muted grid size-9 place-items-center rounded-full lg:hidden">
+              <Link
+                to="/admin"
+                aria-label="Admin"
+                className="hover:bg-muted grid size-9 place-items-center rounded-full lg:hidden"
+              >
                 <ShieldCheck className="size-5" />
               </Link>
             )}
-            <Link to="/settings" aria-label="Settings" className="hover:bg-muted grid size-9 place-items-center rounded-full lg:hidden">
+            <Link
+              to="/settings"
+              aria-label="Settings"
+              className="hover:bg-muted grid size-9 place-items-center rounded-full lg:hidden"
+            >
               <Settings className="size-5" />
             </Link>
           </header>
         )}
 
-        <main key={pathname} className={cn("animate-page mx-auto w-full max-w-5xl flex-1 px-4 py-5", !inMatch && "pb-36 lg:pb-8")}>
+        <main
+          key={pathname}
+          className={cn(
+            "animate-page mx-auto w-full max-w-5xl flex-1 px-4 py-5",
+            !inMatch && "pb-36 lg:pb-8",
+          )}
+        >
           {children}
         </main>
 
         {!inMatch && (
           <nav className="glass pb-safe fixed inset-x-0 bottom-0 z-40 border-t lg:hidden">
             <div className="mx-auto grid max-w-xl grid-cols-5 gap-y-1 px-1 pt-1.5">
-              {NAV.slice(0, 10).map((n) => {
-                const active = pathname.startsWith(n.to);
-                const Icon = n.icon;
+              {NAV.slice(0, 10).map((item) => {
+                const active = pathname.startsWith(item.to);
+                const Icon = item.icon;
                 return (
-                  <Link key={n.to} to={n.to} className="pressable flex flex-col items-center gap-0.5 py-1">
-                    <span className={cn("grid h-7 w-10 place-items-center rounded-full transition-colors", active ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground")}>
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className="pressable flex flex-col items-center gap-0.5 py-1"
+                  >
+                    <span
+                      className={cn(
+                        "grid h-7 w-10 place-items-center rounded-full transition-colors",
+                        active
+                          ? "bg-primary text-primary-foreground shadow-glow"
+                          : "text-muted-foreground",
+                      )}
+                    >
                       <Icon className="size-4" />
                     </span>
-                    <span className={cn("text-[10px] font-semibold", active ? "text-foreground" : "text-muted-foreground")}>{n.label}</span>
+                    <span
+                      className={cn(
+                        "text-[10px] font-semibold",
+                        active ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {item.label}
+                    </span>
                   </Link>
                 );
               })}
@@ -150,13 +224,25 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 type AppPath = (typeof NAV)[number]["to"] | "/settings" | "/admin";
 
-function RailLink({ to, label, icon: Icon, active }: { to: AppPath; label: string; icon: typeof House; active: boolean }) {
+function RailLink({
+  to,
+  label,
+  icon: Icon,
+  active,
+}: {
+  to: AppPath;
+  label: string;
+  icon: typeof House;
+  active: boolean;
+}) {
   return (
     <Link
       to={to}
       className={cn(
         "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors",
-        active ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        active
+          ? "bg-primary text-primary-foreground shadow-glow"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
       )}
     >
       <Icon className="size-5" />
