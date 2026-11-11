@@ -186,7 +186,20 @@ function QuestionsTab() {
 
     getDocs(q)
       .then((snap) => {
-        setQuestions(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<QuestionDoc, "id">) })));
+        setQuestions(
+          snap.docs.map((d) => {
+            const raw = (d.data() ?? {}) as Record<string, any>;
+            return {
+              id: d.id,
+              course: String(raw.course ?? raw.subject ?? "General"),
+              question: String(raw.question ?? raw.text ?? raw.prompt ?? ""),
+              options: Array.isArray(raw.options) ? raw.options.map((o: unknown) => String(o ?? "")) : [],
+              answer: typeof raw.answer === "number" ? raw.answer : (typeof raw.correctIndex === "number" ? raw.correctIndex : 0),
+              explanation: raw.explanation ? String(raw.explanation) : undefined,
+              reported: Boolean(raw.reported),
+            };
+          })
+        );
       })
       .catch((e) => {
         toast.error("Failed to load questions: " + (e as Error).message);
@@ -194,16 +207,20 @@ function QuestionsTab() {
       .finally(() => setLoading(false));
   }, [fb, selectedCourse]);
 
-  const filtered = questions.filter((q) =>
-    q.question.toLowerCase().includes(search.toLowerCase()) ||
-    q.course.toLowerCase().includes(search.toLowerCase())
-  );
+  const qTerm = (search ?? "").trim().toLowerCase();
+  const filtered = questions.filter((q) => {
+    if (!qTerm) return true;
+    const questionText = String(q.question ?? "").toLowerCase();
+    const courseText = String(q.course ?? "").toLowerCase();
+    return questionText.includes(qTerm) || courseText.includes(qTerm);
+  });
 
   async function handleDelete(id: string) {
     if (!fb || !confirm("Delete this question?")) return;
     try {
       await deleteDoc(doc(fb.db, "questions", id));
       setQuestions((cur) => cur.filter((q) => q.id !== id));
+      clearQuestionCache();
       toast.success("Question deleted");
     } catch (e) {
       toast.error((e as Error).message);
@@ -307,7 +324,7 @@ function QuestionsTab() {
                 </div>
                 <p className="font-medium text-sm">{q.question}</p>
                 <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-1">
-                  {q.options.map((opt, i) => (
+                  {(q.options || []).map((opt, i) => (
                     <div key={i} className={q.answer === i ? "text-primary font-bold" : ""}>
                       {String.fromCharCode(65 + i)}. {opt} {q.answer === i ? "✓" : ""}
                     </div>
@@ -336,7 +353,11 @@ function QuestionEditorDialog({ question, course, onClose, onSaved }: { question
   const { fb } = useApp();
   const [c, setC] = useState(question?.course ?? course ?? "");
   const [text, setText] = useState(question?.question ?? "");
-  const [opts, setOpts] = useState<string[]>(question?.options ?? ["", "", "", ""]);
+  const [opts, setOpts] = useState<string[]>(
+    Array.isArray(question?.options) && question.options.length === 4
+      ? question.options
+      : ["", "", "", ""]
+  );
   const [ans, setAns] = useState(question?.answer ?? 0);
   const [exp, setExp] = useState(question?.explanation ?? "");
   const [saving, setSaving] = useState(false);
@@ -349,22 +370,52 @@ function QuestionEditorDialog({ question, course, onClose, onSaved }: { question
 
     setSaving(true);
     try {
-      const data = {
-        course: c.trim(),
-        question: text.trim(),
+      const trimmedCourse = c.trim();
+      const trimmedQuestion = text.trim();
+      const trimmedExplanation = exp.trim();
+
+      const data: Record<string, any> = {
+        course: trimmedCourse,
+        subject: trimmedCourse,
+        question: trimmedQuestion,
+        text: trimmedQuestion,
         options: opts.map((o) => o.trim()),
         answer: ans,
-        explanation: exp.trim() || null,
+        correctIndex: ans,
         reported: false,
+        updatedAt: Date.now(),
       };
+      if (trimmedExplanation) {
+        data.explanation = trimmedExplanation;
+      }
 
       if (question?.id) {
         await updateDoc(doc(fb.db, "questions", question.id), data);
-        onSaved({ id: question.id, ...data, explanation: data.explanation ?? undefined });
+        onSaved({
+          id: question.id,
+          course: trimmedCourse,
+          question: trimmedQuestion,
+          options: data.options,
+          answer: ans,
+          explanation: trimmedExplanation || undefined,
+          reported: false,
+        });
         toast.success("Question updated");
       } else {
-        const ref = await addDoc(collection(fb.db, "questions"), data);
-        onSaved({ id: ref.id, ...data, explanation: data.explanation ?? undefined });
+        const ref = await addDoc(collection(fb.db, "questions"), {
+          ...data,
+          active: true,
+          createdAt: Date.now(),
+        });
+        onSaved({
+          id: ref.id,
+          course: trimmedCourse,
+          question: trimmedQuestion,
+          options: data.options,
+          answer: ans,
+          explanation: trimmedExplanation || undefined,
+          reported: false,
+        });
         toast.success("Question created");
       }
       clearQuestionCache();
@@ -445,13 +496,19 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
       const batch = writeBatch(fb.db);
       for (const q of questions) {
         const ref = doc(collection(fb.db, "questions"));
+        const subjectName = (course.trim() || q.subject || "General").trim();
         batch.set(ref, {
-          course: (course.trim() || q.subject).trim(),
+          course: subjectName,
+          subject: subjectName,
           topic: q.topic || "",
           question: q.text,
+          text: q.text,
           options: q.options,
           answer: q.correctIndex,
+          correctIndex: q.correctIndex,
+          explanation: q.explanation || null,
           reported: false,
+          active: true,
           createdAt: Date.now(),
         });
       }
@@ -515,7 +572,6 @@ function PlayersTab() {
         setPlayers(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UserRow, "id">) })));
       })
       .catch(() => {
-        // Fallback without orderBy if createdAt index is not present
         getDocs(query(collection(fb.db, "users"), limit(100)))
           .then((s) => {
             setPlayers(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UserRow, "id">) })));
@@ -549,11 +605,14 @@ function PlayersTab() {
     }
   }
 
-  const filtered = players.filter((p) =>
-    (p.username ?? "").toLowerCase().includes(search.toLowerCase()) ||
-    (p.email ?? "").toLowerCase().includes(search.toLowerCase()) ||
-    p.id.toLowerCase().includes(search.toLowerCase())
-  );
+  const pTerm = (search ?? "").trim().toLowerCase();
+  const filtered = players.filter((p) => {
+    if (!pTerm) return true;
+    const u = String(p.username ?? "").toLowerCase();
+    const e = String(p.email ?? "").toLowerCase();
+    const id = String(p.id ?? "").toLowerCase();
+    return u.includes(pTerm) || e.includes(pTerm) || id.includes(pTerm);
+  });
 
   return (
     <div className="space-y-4">
@@ -1101,9 +1160,11 @@ function SponsorsTab() {
   }
 
   function add() {
-    if (!next.trim()) return;
     const clean = next.trim();
-    if (sponsors.some((s) => s.name.toLowerCase() === clean.toLowerCase())) return toast.error("Already in sponsors list");
+    if (!clean) return;
+    if (sponsors.some((s) => String(s?.name ?? "").toLowerCase() === clean.toLowerCase())) {
+      return toast.error("Already in sponsors list");
+    }
     const updated: Sponsor[] = [
       ...sponsors,
       { id: crypto.randomUUID(), name: clean, tagline: "", logoUrl: "", website: "", active: true },
