@@ -1,6 +1,16 @@
 // Single source of truth for subjects: the Firestore "subjects" collection.
 import { useEffect, useState } from "react";
-import { collection, doc, onSnapshot, writeBatch, type Firestore } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+  writeBatch,
+  type Firestore,
+} from "firebase/firestore";
 
 export interface Subject {
   id: string;
@@ -14,6 +24,8 @@ export interface Subject {
   cbtEnabled?: boolean;
   cbtInstructions?: string;
 }
+
+export type SubjectDoc = Subject;
 
 export function cleanSubjectFullName(name: string): string {
   return String(name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
@@ -65,6 +77,29 @@ export async function registerSubjects(db: Firestore, existing: Subject[], names
     await b.commit();
   }
   return r;
+}
+
+export async function listSubjects(db: Firestore): Promise<SubjectDoc[]> {
+  const snap = await getDocs(collection(db, "subjects"));
+  return snap.docs
+    .map((d) => ({ ...(d.data() as Partial<SubjectDoc>), id: d.id, name: String(d.data().name ?? d.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function addSubject(db: Firestore, name: string): Promise<SubjectDoc> {
+  const cleaned = cleanSubjectName(name);
+  const id = subjectKey(cleaned);
+  const subject: SubjectDoc = { id, name: cleaned };
+  await setDoc(doc(db, "subjects", id), { name: cleaned, createdAt: Date.now() }, { merge: true });
+  return subject;
+}
+
+export async function updateSubject(db: Firestore, id: string, patch: Partial<SubjectDoc>): Promise<void> {
+  await updateDoc(doc(db, "subjects", id), patch as Record<string, any>);
+}
+
+export async function removeSubject(db: Firestore, id: string): Promise<void> {
+  await deleteDoc(doc(db, "subjects", id));
 }
 
 export function useSubjects(db: Firestore | null | undefined): Subject[] {
