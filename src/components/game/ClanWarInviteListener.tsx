@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   collection,
   doc,
@@ -7,9 +8,8 @@ import {
   runTransaction,
   where,
 } from "firebase/firestore";
-import type { ClanBattleChallenge, ClanDoc } from "@/lib/clans";
-import { INITIAL_ACHIEVEMENTS } from "@/lib/clans";
-import { useApp } from "@/lib/app-context";
+import { Award, Check, Shield, Swords, Users, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,20 +18,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { toast } from "sonner";
-import { Award, Check, Shield, Swords, Users, X } from "lucide-react";
+import { useApp } from "@/lib/app-context";
+import { INITIAL_ACHIEVEMENTS, type ClanBattleChallenge, type ClanDoc } from "@/lib/clans";
 
 type Invite = ClanBattleChallenge & { id: string };
 
 export function ClanWarInviteListener() {
   const { fb, user } = useApp();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
   const [clanId, setClanId] = useState<string | null>(null);
-  const [invites, setInvites] = useState<Invite[]>([]);
+  const [challenges, setChallenges] = useState<Invite[]>([]);
   const [challenger, setChallenger] = useState<ClanDoc | null>(null);
-  const [unlockedAchievementIds, setUnlockedAchievementIds] = useState<string[]>([]);
+  const [achievementIds, setAchievementIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  // Find the signed-in player's clan.
   useEffect(() => {
     if (!fb || !user) {
       setClanId(null);
@@ -41,48 +43,71 @@ export function ClanWarInviteListener() {
     return onSnapshot(
       query(collection(fb.db, "clanMembers"), where("uid", "==", user.uid)),
       (snapshot) => {
-        setClanId((snapshot.docs[0]?.data().clanId as string | undefined) ?? null);
+        setClanId(
+          (snapshot.docs[0]?.data().clanId as string | undefined) ?? null,
+        );
       },
       () => setClanId(null),
     );
   }, [fb, user]);
 
-  // Listen for pending challenges addressed to this clan.
+  // Listen to both incoming invitations and accepted wars for this clan.
   useEffect(() => {
     if (!fb || !clanId) {
-      setInvites([]);
+      setChallenges([]);
       return;
     }
 
     return onSnapshot(
-      query(collection(fb.db, "clanBattles"), where("targetClanId", "==", clanId)),
+      collection(fb.db, "clanBattles"),
       (snapshot) => {
-        const pending = snapshot.docs
+        const relevant = snapshot.docs
           .map((item) => ({ ...item.data(), id: item.id }) as Invite)
-          .filter((invite) => invite.status === "pending")
+          .filter(
+            (challenge) =>
+              challenge.challengerClanId === clanId ||
+              challenge.targetClanId === clanId,
+          )
           .sort((a, b) => b.createdAt - a.createdAt);
 
-        setInvites(pending);
+        setChallenges(relevant);
       },
-      () => setInvites([]),
+      () => setChallenges([]),
     );
   }, [fb, clanId]);
 
-  const activeInvite = invites[0] ?? null;
+  const incomingInvite =
+    challenges.find(
+      (challenge) =>
+        challenge.targetClanId === clanId && challenge.status === "pending",
+    ) ?? null;
 
-  // Fetch the challenger clan overview and its unlocked achievements.
+  // Once accepted, route members of both clans into the shared waiting room.
   useEffect(() => {
-    if (!fb || !activeInvite) {
+    const accepted = challenges.find(
+      (challenge) =>
+        (challenge.status === "accepted" || challenge.status === "starting") &&
+        (challenge.challengerClanId === clanId ||
+          challenge.targetClanId === clanId),
+    );
+
+    if (!accepted || pathname.startsWith("/clan-war/")) return;
+
+    void navigate({
+      to: "/clan-war/$challengeId" as never,
+      params: { challengeId: accepted.id } as never,
+    });
+  }, [challenges, clanId, pathname, navigate]);
+
+  useEffect(() => {
+    if (!fb || !incomingInvite) {
       setChallenger(null);
-      setUnlockedAchievementIds([]);
+      setAchievementIds([]);
       return;
     }
 
-    setChallenger(null);
-    setUnlockedAchievementIds([]);
-
     const unsubscribeClan = onSnapshot(
-      doc(fb.db, "clans", activeInvite.challengerClanId),
+      doc(fb.db, "clans", incomingInvite.challengerClanId),
       (snapshot) => {
         setChallenger(
           snapshot.exists()
@@ -96,44 +121,51 @@ export function ClanWarInviteListener() {
     const unsubscribeAchievements = onSnapshot(
       query(
         collection(fb.db, "clanUnlockedAchievements"),
-        where("clanId", "==", activeInvite.challengerClanId),
+        where("clanId", "==", incomingInvite.challengerClanId),
       ),
       (snapshot) => {
-        const ids = snapshot.docs
-          .map((item) => item.data().achievementId as string | undefined)
-          .filter((id): id is string => !!id);
-
-        setUnlockedAchievementIds(ids);
+        setAchievementIds(
+          snapshot.docs
+            .map((item) => item.data().achievementId as string | undefined)
+            .filter((id): id is string => !!id),
+        );
       },
-      () => setUnlockedAchievementIds([]),
+      () => setAchievementIds([]),
     );
 
     return () => {
       unsubscribeClan();
       unsubscribeAchievements();
     };
-  }, [fb, activeInvite?.id, activeInvite?.challengerClanId]);
+  }, [fb, incomingInvite?.id, incomingInvite?.challengerClanId]);
 
   async function respond(accept: boolean) {
-    if (!fb || !user || !clanId || !activeInvite || busy) return;
+    if (!fb || !user || !clanId || !incomingInvite || busy) return;
 
     setBusy(true);
     try {
       await runTransaction(fb.db, async (transaction) => {
-        const challengeRef = doc(fb.db, "clanBattles", activeInvite.id);
-        const membershipRef = doc(fb.db, "clanMembers", `${clanId}_${user.uid}`);
+        const challengeRef = doc(fb.db, "clanBattles", incomingInvite.id);
+        const membershipRef = doc(
+          fb.db,
+          "clanMembers",
+          `${clanId}_${user.uid}`,
+        );
 
         const [challengeSnapshot, membershipSnapshot] = await Promise.all([
           transaction.get(challengeRef),
           transaction.get(membershipRef),
         ]);
 
-        if (!membershipSnapshot.exists() || membershipSnapshot.data().clanId !== clanId) {
-          throw new Error("You must be a member of the invited clan to respond.");
+        if (
+          !membershipSnapshot.exists() ||
+          membershipSnapshot.data().clanId !== clanId
+        ) {
+          throw new Error("You must belong to the invited clan to respond.");
         }
 
         if (!challengeSnapshot.exists()) {
-          throw new Error("This war invitation is no longer available.");
+          throw new Error("This invitation is no longer available.");
         }
 
         const challenge = challengeSnapshot.data();
@@ -141,7 +173,7 @@ export function ClanWarInviteListener() {
           challenge.targetClanId !== clanId ||
           challenge.status !== "pending"
         ) {
-          throw new Error("This war invitation has already been resolved.");
+          throw new Error("This invitation has already been resolved.");
         }
 
         transaction.update(challengeRef, {
@@ -150,20 +182,32 @@ export function ClanWarInviteListener() {
         });
       });
 
-      toast.success(accept ? "War invitation accepted." : "War invitation rejected.");
+      toast.success(
+        accept
+          ? "War invitation accepted. Opening the clan war waiting room."
+          : "War invitation rejected.",
+      );
+
+      if (accept) {
+        void navigate({
+          to: "/clan-war/$challengeId" as never,
+          params: { challengeId: incomingInvite.id } as never,
+        });
+      }
     } catch (error) {
-      toast.error((error as Error).message || "Could not respond to the war invitation.");
+      toast.error(
+        (error as Error).message || "Could not respond to the invitation.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  if (!activeInvite) return null;
+  if (!incomingInvite) return null;
 
-  const knownAchievements = INITIAL_ACHIEVEMENTS.filter((achievement) =>
-    unlockedAchievementIds.includes(achievement.id),
-  );
-  const displayedAchievements = knownAchievements.slice(0, 3);
+  const unlockedAchievements = INITIAL_ACHIEVEMENTS.filter((achievement) =>
+    achievementIds.includes(achievement.id),
+  ).slice(0, 3);
 
   return (
     <Dialog open onOpenChange={() => {}}>
@@ -173,7 +217,7 @@ export function ClanWarInviteListener() {
         onInteractOutside={(event) => event.preventDefault()}
       >
         <div
-          className="relative overflow-hidden border-b border-border/60 p-5"
+          className="relative border-b border-border/60 p-5"
           style={{
             background:
               challenger?.banner ??
@@ -193,14 +237,16 @@ export function ClanWarInviteListener() {
                   {challenger?.emblem ?? "🛡️"}
                 </span>
                 <span>
-                  {activeInvite.challengerClanName}
-                  <span className="ml-2 text-sm font-black text-primary">
-                    [{activeInvite.challengerClanTag}]
+                  {incomingInvite.challengerClanName}
+                  <span className="ml-2 text-sm text-primary">
+                    [{incomingInvite.challengerClanTag}]
                   </span>
                 </span>
               </DialogTitle>
               <DialogDescription className="mt-2 text-foreground/80">
-                {challenger?.motto || challenger?.description || "A rival clan has challenged your team."}
+                {challenger?.motto ||
+                  challenger?.description ||
+                  "A rival clan has challenged your team."}
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -208,24 +254,12 @@ export function ClanWarInviteListener() {
 
         <div className="space-y-4 p-5">
           <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Proposed format
-                </div>
-                <div className="mt-1 flex items-center gap-2 text-lg font-black">
-                  <Swords className="size-4 text-primary" />
-                  {activeInvite.format}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Invitation sent
-                </div>
-                <div className="mt-1 text-sm font-semibold">
-                  {new Date(activeInvite.createdAt).toLocaleDateString()}
-                </div>
-              </div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              Proposed war format
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-lg font-black">
+              <Swords className="size-4 text-primary" />
+              {incomingInvite.format}
             </div>
           </div>
 
@@ -235,12 +269,12 @@ export function ClanWarInviteListener() {
               Clan overview
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              <OverviewStat label="Level" value={challenger ? `${challenger.level}` : "—"} />
-              <OverviewStat
+              <Overview label="Level" value={challenger ? `${challenger.level}` : "—"} />
+              <Overview
                 label="Competitive points"
                 value={challenger ? `${challenger.competitivePoints} CP` : "—"}
               />
-              <OverviewStat
+              <Overview
                 label="Members"
                 value={
                   challenger
@@ -248,7 +282,7 @@ export function ClanWarInviteListener() {
                     : "—"
                 }
               />
-              <OverviewStat
+              <Overview
                 label="War record"
                 value={
                   challenger
@@ -259,7 +293,7 @@ export function ClanWarInviteListener() {
             </div>
           </section>
 
-          <section aria-label="Challenger clan achievements">
+          <section aria-label="Challenger achievements">
             <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
               <Award className="size-4 text-warning" />
               Achievements
@@ -270,25 +304,20 @@ export function ClanWarInviteListener() {
               )}
             </h3>
 
-            {displayedAchievements.length > 0 ? (
+            {unlockedAchievements.length ? (
               <div className="space-y-2">
-                {displayedAchievements.map((achievement) => (
+                {unlockedAchievements.map((achievement) => (
                   <div
                     key={achievement.id}
                     className="flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 p-2.5"
                   >
-                    <Award className="size-4 shrink-0 text-warning" />
+                    <Award className="size-4 text-warning" />
                     <span className="text-sm font-bold">{achievement.title}</span>
                     <span className="ml-auto text-[10px] capitalize text-muted-foreground">
                       {achievement.rarity}
                     </span>
                   </div>
                 ))}
-                {knownAchievements.length > displayedAchievements.length && (
-                  <p className="text-right text-[11px] text-muted-foreground">
-                    +{knownAchievements.length - displayedAchievements.length} more
-                  </p>
-                )}
               </div>
             ) : (
               <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
@@ -297,7 +326,7 @@ export function ClanWarInviteListener() {
             )}
           </section>
 
-          <div className="flex items-center gap-2 border-t border-border/60 pt-4">
+          <div className="flex gap-2 border-t border-border/60 pt-4">
             <Button
               variant="outline"
               className="flex-1"
@@ -322,7 +351,7 @@ export function ClanWarInviteListener() {
   );
 }
 
-function OverviewStat({ label, value }: { label: string; value: string }) {
+function Overview({ label, value }: { label: string; value: string }) {
   const Icon = label === "Members" ? Users : Shield;
 
   return (
