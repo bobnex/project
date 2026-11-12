@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   collection,
   doc,
@@ -33,20 +33,31 @@ type Invite = ClanBattleChallenge & { id: string };
 export function ClanWarInviteListener() {
   const { fb, user } = useApp();
   let navigate: ReturnType<typeof useNavigate> | null = null;
+  let currentPath = "";
+
   try {
     navigate = useNavigate();
   } catch {
-    // Graceful fallback for headless test environments
+    // Graceful fallback for test environments
+  }
+
+  try {
+    currentPath = useRouterState({ select: (s) => s.location.pathname });
+  } catch {
+    currentPath = "";
   }
 
   const [membership, setMembership] = useState<ClanMember | null>(null);
-  const [challenges, setChallenges] = useState<Invite[]>([]);
+  const [incomingInvites, setIncomingInvites] = useState<Invite[]>([]);
+  const [acceptedChallenges, setAcceptedChallenges] = useState<Invite[]>([]);
   const [challenger, setChallenger] = useState<ClanDoc | null>(null);
   const [achievementIds, setAchievementIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [dismissedAcceptedId, setDismissedAcceptedId] = useState<string | null>(null);
 
   const clanId = membership?.clanId ?? null;
 
+  // 1. Listen for user clan membership
   useEffect(() => {
     if (!fb || !user) {
       setMembership(null);
@@ -63,31 +74,54 @@ export function ClanWarInviteListener() {
     );
   }, [fb, user]);
 
+  // 2. Listen for challenges affecting the user's clan
   useEffect(() => {
     if (!fb || !clanId) {
-      setChallenges([]);
+      setIncomingInvites([]);
+      setAcceptedChallenges([]);
       return;
     }
 
     return onSnapshot(
       collection(fb.db, "clanBattles"),
       (snapshot) => {
-        const relevant = snapshot.docs
-          .map((item) => ({ ...item.data(), id: item.id }) as Invite)
-          .filter(
-            (challenge) =>
-              challenge.targetClanId === clanId && challenge.status === "pending",
-          )
-          .sort((a, b) => b.createdAt - a.createdAt);
+        const allBattles = snapshot.docs.map(
+          (item) => ({ ...item.data(), id: item.id }) as Invite,
+        );
 
-        setChallenges(relevant);
+        // Incoming pending challenges (I am target clan)
+        const incoming = allBattles
+          .filter((b) => b.targetClanId === clanId && b.status === "pending")
+          .sort((a, b) => b.createdAt - a.createdAt);
+        setIncomingInvites(incoming);
+
+        // Accepted challenges awaiting match launch (I am the challenger clan)
+        const accepted = allBattles
+          .filter(
+            (b) =>
+              b.challengerClanId === clanId &&
+              b.status === "accepted" &&
+              !b.matchId,
+          )
+          .sort((a, b) => (b.resolvedAt ?? b.createdAt) - (a.resolvedAt ?? a.createdAt));
+        setAcceptedChallenges(accepted);
       },
-      () => setChallenges([]),
+      () => {
+        setIncomingInvites([]);
+        setAcceptedChallenges([]);
+      },
     );
   }, [fb, clanId]);
 
-  const incomingInvite = challenges[0] ?? null;
+  const incomingInvite = incomingInvites[0] ?? null;
 
+  // Most recent accepted war that hasn't been dismissed or navigated to
+  const currentAcceptedWar =
+    acceptedChallenges.find(
+      (w) => w.id !== dismissedAcceptedId && !currentPath.includes(w.id),
+    ) ?? null;
+
+  // Load details for incoming challenger
   useEffect(() => {
     if (!fb || !incomingInvite) {
       setChallenger(null);
@@ -159,7 +193,7 @@ export function ClanWarInviteListener() {
 
       toast.success(
         accept
-          ? "War invitation accepted. Opening the clan war lobby."
+          ? "War invitation accepted! Entering the clan war lobby."
           : "War invitation rejected.",
       );
 
@@ -176,6 +210,68 @@ export function ClanWarInviteListener() {
     }
   }
 
+  // --- Modal 1: Notification to Challenger that opponent ACCEPTED ---
+  if (currentAcceptedWar) {
+    return (
+      <Dialog open onOpenChange={() => setDismissedAcceptedId(currentAcceptedWar.id)}>
+        <DialogContent
+          className="max-w-md overflow-hidden p-0 border-primary/40 shadow-2xl"
+          onEscapeKeyDown={() => setDismissedAcceptedId(currentAcceptedWar.id)}
+        >
+          <div className="relative overflow-hidden bg-gradient-to-br from-primary/25 via-background to-accent/20 border-b border-border/60 p-5">
+            <div className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary w-fit mb-3">
+              <Swords className="size-4 animate-bounce" />
+              War Challenge Accepted!
+            </div>
+            <DialogHeader className="text-left">
+              <DialogTitle className="text-xl font-black flex items-center gap-2">
+                <span>[{currentAcceptedWar.targetClanTag}] {currentAcceptedWar.targetClanName}</span>
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-foreground/80 text-sm">
+                The rival clan accepted your challenge. The war room is now open for roster locking and match launch!
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="rounded-xl border border-border bg-card/60 p-3 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground uppercase font-bold">Format</span>
+              <span className="font-black text-sm uppercase text-primary">
+                {currentAcceptedWar.format} Duel
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-border/60">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDismissedAcceptedId(currentAcceptedWar.id)}
+              >
+                Later
+              </Button>
+              <Button
+                className="flex-1 font-bold shadow-glow"
+                onClick={() => {
+                  setDismissedAcceptedId(currentAcceptedWar.id);
+                  if (navigate) {
+                    void navigate({
+                      to: "/clan-war/$challengeId",
+                      params: { challengeId: currentAcceptedWar.id },
+                    });
+                  }
+                }}
+              >
+                <Swords className="mr-2 size-4" />
+                Enter War Room
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // --- Modal 2: Incoming War Invite for Target Clan ---
   if (!incomingInvite) return null;
 
   const unlockedAchievements = INITIAL_ACHIEVEMENTS.filter((achievement) =>
