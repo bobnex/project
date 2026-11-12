@@ -6,7 +6,6 @@ import {
   onSnapshot,
   query,
   runTransaction,
-  updateDoc,
   where,
   type DocumentData,
 } from "firebase/firestore";
@@ -15,10 +14,12 @@ import {
   CheckCircle2,
   Crown,
   Loader2,
+  LogOut,
   Play,
   Shield,
   Sparkles,
   Swords,
+  Trophy,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -49,6 +50,8 @@ type WarChallenge = DocumentData & {
   matchId?: string;
   playerOneUid?: string;
   playerTwoUid?: string;
+  winnerClanId?: string | null;
+  scores?: Record<string, number>;
   settings?: {
     subjects?: string[];
     secondsPerQuestion?: number;
@@ -60,7 +63,7 @@ export const Route = createFileRoute("/_player/clan-war/$challengeId")({
   component: ClanWarWaitingRoom,
   head: () => ({
     title: "Clan War Waiting Room | Juvora Esports",
-    meta: [{ name: "description", content: "Set up and launch your clan war." }],
+    meta: [{ name: "description", content: "Set up, launch, and review your clan war." }],
   }),
 });
 
@@ -104,8 +107,7 @@ function ClanWarWaitingRoom() {
         setSubjects(nextSubjects);
         setSecondsPerQuestion(data.settings?.secondsPerQuestion ?? 15);
         setQuestionCount(
-          data.settings?.questionCount ??
-            getClanWarQuestionCount(data.format),
+          data.settings?.questionCount ?? getClanWarQuestionCount(data.format),
         );
         setLoading(false);
       },
@@ -215,10 +217,12 @@ function ClanWarWaitingRoom() {
     [members],
   );
 
+  // Auto-navigate match participants into the match room once running
   useEffect(() => {
     if (
       !challenge?.matchId ||
       !user ||
+      challenge.status !== "in_progress" ||
       !challenge.playerOneUid ||
       !challenge.playerTwoUid ||
       ![challenge.playerOneUid, challenge.playerTwoUid].includes(user.uid)
@@ -230,7 +234,7 @@ function ClanWarWaitingRoom() {
       to: "/match/$matchId",
       params: { matchId: challenge.matchId },
     });
-  }, [challenge?.matchId, challenge?.playerOneUid, challenge?.playerTwoUid, user, navigate]);
+  }, [challenge?.status, challenge?.matchId, challenge?.playerOneUid, challenge?.playerTwoUid, user, navigate]);
 
   if (loading) return <FullLoader label="Loading clan war room" />;
 
@@ -239,7 +243,7 @@ function ClanWarWaitingRoom() {
       <div className="surface-card space-y-4 p-6 text-center">
         <h1 className="text-xl font-black">Clan war unavailable</h1>
         <p className="text-sm text-muted-foreground">
-          This invitation could not be found.
+          This invitation could not be found or has been removed.
         </p>
         <Button asChild variant="outline">
           <Link to="/clans">
@@ -273,6 +277,7 @@ function ClanWarWaitingRoom() {
     return (
       <div className="surface-card space-y-4 p-6 text-center">
         <h1 className="text-xl font-black">War invitation rejected</h1>
+        <p className="text-sm text-muted-foreground">This war clash was turned down.</p>
         <Button asChild variant="outline">
           <Link to="/clans">Back to clans</Link>
         </Button>
@@ -283,24 +288,86 @@ function ClanWarWaitingRoom() {
   if (challenge.status === "pending") {
     return (
       <div className="surface-card space-y-4 p-6 text-center">
-        <h1 className="text-xl font-black">Waiting for the invite response</h1>
+        <h1 className="text-xl font-black">Waiting for invite response</h1>
         <p className="text-sm text-muted-foreground">
-          The invited clan still needs to accept this challenge.
+          [{challenge.targetClanTag}] {challenge.targetClanName} still needs to accept this challenge.
         </p>
+        <Button asChild variant="outline">
+          <Link to="/clans">Back to clans</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // Completed War View
+  if (challenge.status === "completed") {
+    const scores = challenge.scores ?? {};
+    const scoreA = scores[challenge.challengerClanId] ?? 0;
+    const scoreB = scores[challenge.targetClanId] ?? 0;
+    const winnerId = challenge.winnerClanId;
+    const isWinner = winnerId === ownClanId;
+    const isDraw = winnerId === null;
+
+    return (
+      <div className="mx-auto max-w-2xl space-y-6">
+        <section className="hero-card text-center p-8 space-y-4 relative overflow-hidden">
+          <Trophy className="mx-auto size-16 text-warning" />
+          <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 border border-primary/25 px-3 py-1 text-xs font-bold text-primary">
+            Clan War Concluded
+          </div>
+          <h1 className="text-3xl font-black">
+            {isDraw
+              ? "Honorable Draw!"
+              : isWinner
+                ? "Glorious Victory!"
+                : "Defeat in Battle"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {isDraw
+              ? "Both clans fought fiercely and matched scores."
+              : isWinner
+                ? `Your clan earned 25 Competitive Points (CP) and 100 Clan XP!`
+                : `Your clan fought with honor. +25 Clan XP participation awarded.`}
+          </p>
+
+          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/60">
+            <div className={`p-4 rounded-xl border ${winnerId === challenge.challengerClanId ? "border-warning/50 bg-warning/5" : "border-border bg-card/60"}`}>
+              <div className="text-xs font-bold text-muted-foreground">[{challenge.challengerClanTag}]</div>
+              <div className="text-base font-black truncate">{challenge.challengerClanName}</div>
+              <div className="text-3xl font-black mt-2 text-primary">{scoreA}</div>
+            </div>
+            <div className={`p-4 rounded-xl border ${winnerId === challenge.targetClanId ? "border-warning/50 bg-warning/5" : "border-border bg-card/60"}`}>
+              <div className="text-xs font-bold text-muted-foreground">[{challenge.targetClanTag}]</div>
+              <div className="text-base font-black truncate">{challenge.targetClanName}</div>
+              <div className="text-3xl font-black mt-2 text-primary">{scoreB}</div>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Button asChild size="lg" className="w-full font-bold">
+              <Link to="/clans">
+                <Shield className="mr-2 size-4" />
+                Return to Clan HQ
+              </Link>
+            </Button>
+          </div>
+        </section>
       </div>
     );
   }
 
   if (challenge.status === "in_progress" && challenge.matchId) {
     return (
-      <div className="surface-card space-y-4 p-6 text-center">
-        <Swords className="mx-auto size-8 text-primary" />
-        <h1 className="text-xl font-black">The clan war has started</h1>
+      <div className="surface-card space-y-4 p-8 text-center max-w-lg mx-auto">
+        <Swords className="mx-auto size-12 text-primary animate-pulse" />
+        <h1 className="text-2xl font-black">Clan War in Progress</h1>
         <p className="text-sm text-muted-foreground">
-          The selected duel is already running.
+          The selected duel clash is currently active in the arena.
         </p>
 
         <Button
+          size="lg"
+          className="w-full font-bold"
           onClick={() => {
             const matchId = challenge.matchId;
             if (matchId) {
@@ -308,7 +375,8 @@ function ClanWarWaitingRoom() {
             }
           }}
         >
-          Open battle
+          <Swords className="mr-2 size-4" />
+          Enter Battle Arena
         </Button>
       </div>
     );
@@ -333,16 +401,7 @@ function ClanWarWaitingRoom() {
     try {
       await runTransaction(fb.db, async (transaction) => {
         const challengeRef = doc(fb.db, "clanBattles", challenge.id);
-        const memberRef = doc(fb.db, "clanMembers", `${membership.clanId}_${currentUid}`);
-
-        const [challengeSnapshot, memberSnapshot] = await Promise.all([
-          transaction.get(challengeRef),
-          transaction.get(memberRef),
-        ]);
-
-        if (!memberSnapshot.exists()) {
-          throw new Error("Your clan membership could not be verified.");
-        }
+        const challengeSnapshot = await transaction.get(challengeRef);
 
         if (!challengeSnapshot.exists()) {
           throw new Error("This war room is no longer available.");
@@ -368,6 +427,37 @@ function ClanWarWaitingRoom() {
       toast.success("You joined your clan's war roster.");
     } catch (error) {
       toast.error((error as Error).message || "Could not join the roster.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function leaveWar() {
+    if (!fb || !user || !challenge || !membership || busy) return;
+    const currentUid = user.uid;
+
+    const isChallengerSide = membership.clanId === challenge.challengerClanId;
+    const field = isChallengerSide ? "challengerRoster" : "targetRoster";
+
+    setBusy(true);
+    try {
+      await runTransaction(fb.db, async (transaction) => {
+        const challengeRef = doc(fb.db, "clanBattles", challenge.id);
+        const challengeSnapshot = await transaction.get(challengeRef);
+
+        if (!challengeSnapshot.exists()) return;
+        const data = challengeSnapshot.data();
+        if (data.status !== "accepted") return;
+
+        const roster = (data[field] ?? []) as string[];
+        transaction.update(challengeRef, {
+          [field]: roster.filter((id) => id !== currentUid),
+        });
+      });
+
+      toast.info("You stepped down from the war roster.");
+    } catch (error) {
+      toast.error((error as Error).message || "Could not leave the roster.");
     } finally {
       setBusy(false);
     }
@@ -447,6 +537,8 @@ function ClanWarWaitingRoom() {
         hostUid: user.uid,
         format: challenge.format,
         explicitSubjects: nextSubjects,
+        secondsPerQuestion,
+        questionCount: nextQuestionCount,
       });
 
       void navigate({
@@ -481,8 +573,7 @@ function ClanWarWaitingRoom() {
             {challenge.targetClanName}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {challenge.format} format • random pool from General, Mathematics and English •
-            {` ${getClanWarQuestionCount(challenge.format)} questions`}
+            {challenge.format} format • mixed question pool • {questionCount} questions
           </p>
         </div>
       </section>
@@ -497,11 +588,11 @@ function ClanWarWaitingRoom() {
           const maxRoster = expectedPlayers;
 
           return (
-            <div key={clanId} className="surface-card animate-soft-float space-y-3 p-4">
+            <div key={clanId} className="surface-card space-y-3 p-4">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-black">{sideName(clanId)}</h2>
                 <span className="text-xs font-semibold text-muted-foreground">
-                  {roster.length}/{maxRoster}
+                  {roster.length}/{maxRoster} slots filled
                 </span>
               </div>
 
@@ -515,12 +606,12 @@ function ClanWarWaitingRoom() {
                       {index === 0 && <Crown className="size-4 text-warning" />}
                       <span className="truncate">
                         {memberLookup.get(uid)?.username ??
-                          (uid === user.uid ? profile.username : "Clan member")}
+                          (uid === user.uid ? profile.username : "Clan champion")}
                         {uid === user.uid ? " (you)" : ""}
                       </span>
                       {index === 0 && (
                         <span className="ml-auto text-[10px] text-muted-foreground">
-                          Lead slot
+                          Champion Lead
                         </span>
                       )}
                     </div>
@@ -528,20 +619,35 @@ function ClanWarWaitingRoom() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
-                  No members have joined this roster yet.
+                  No members have locked in their roster spot yet.
                 </div>
               )}
 
-              {isMySide && challenge.status === "accepted" && !roster.includes(user.uid) && (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  disabled={busy || roster.length >= maxRoster}
-                  onClick={() => void joinWar()}
-                >
-                  <Users className="mr-2 size-4" />
-                  Join this clan roster
-                </Button>
+              {isMySide && challenge.status === "accepted" && (
+                <div>
+                  {!roster.includes(user.uid) ? (
+                    <Button
+                      variant="outline"
+                      className="w-full font-bold"
+                      disabled={busy || roster.length >= maxRoster}
+                      onClick={() => void joinWar()}
+                    >
+                      <Users className="mr-2 size-4" />
+                      Lock in my roster spot
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full text-xs text-destructive hover:text-destructive"
+                      disabled={busy}
+                      onClick={() => void leaveWar()}
+                    >
+                      <LogOut className="mr-2 size-3" />
+                      Step down from roster
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           );
@@ -549,14 +655,14 @@ function ClanWarWaitingRoom() {
       </section>
 
       {canConfigure && challenge.status === "accepted" && (
-        <section className="surface-card animate-soft-float space-y-4 p-4 sm:p-5">
+        <section className="surface-card space-y-4 p-4 sm:p-5">
           <div>
             <h2 className="flex items-center gap-2 font-black">
               <Crown className="size-4 text-warning" />
-              Match setup
+              War Setup & Launch
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Select the mixed question pool, then start once both sides are filled.
+              Configure duel parameters, then launch once both sides fill their rosters.
             </p>
           </div>
 
@@ -573,7 +679,9 @@ function ClanWarWaitingRoom() {
                       onClick={() =>
                         setSubjects((curr) =>
                           active
-                            ? curr.filter((item) => item !== cat)
+                            ? curr.length > 1
+                              ? curr.filter((item) => item !== cat)
+                              : curr
                             : [...curr, cat],
                         )
                       }
@@ -617,11 +725,7 @@ function ClanWarWaitingRoom() {
 
           <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 text-sm">
             <CheckCircle2 className="mr-2 inline-block size-4 text-primary" />
-            This match uses a random pool from: {subjects.join(", ")}.
-            <br />
-            {challenge.format === "1v1" && "Total questions: 10"}
-            {challenge.format === "3v3" && "Total questions: 25"}
-            {challenge.format === "5v5" && "Total questions: 30"}
+            Duel uses random pool from: {subjects.join(", ")}.
           </div>
 
           <Button
@@ -643,7 +747,7 @@ function ClanWarWaitingRoom() {
               : challengerRoster.length >= expectedPlayers &&
                   targetRoster.length >= expectedPlayers
                 ? "Start clan war"
-                : `Waiting for ${expectedPlayers} players per side`}
+                : `Waiting for ${expectedPlayers} player(s) per side`}
           </Button>
         </section>
       )}
@@ -651,14 +755,14 @@ function ClanWarWaitingRoom() {
       {!canConfigure && challenge.status === "accepted" && (
         <div className="surface-card flex items-center gap-3 p-4 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin text-primary" />
-          Waiting for the inviting clan leader or officer to set up the match.
+          Waiting for the inviting clan officer to set up and launch the duel.
         </div>
       )}
 
       {challenge.status === "starting" && (
         <div className="surface-card flex items-center gap-3 p-4 text-sm">
           <Loader2 className="size-4 animate-spin text-primary" />
-          Launching the clan war…
+          Launching the clan war clash…
         </div>
       )}
 
