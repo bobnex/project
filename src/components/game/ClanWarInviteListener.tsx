@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   collection,
   doc,
@@ -21,36 +21,45 @@ import {
 } from "@/components/ui/dialog";
 import { useApp } from "@/lib/app-context";
 import {
+  canPerformClanAction,
   INITIAL_ACHIEVEMENTS,
   type ClanBattleChallenge,
   type ClanDoc,
+  type ClanMember,
 } from "@/lib/clans";
 
 type Invite = ClanBattleChallenge & { id: string };
 
 export function ClanWarInviteListener() {
   const { fb, user } = useApp();
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
+  let navigate: ReturnType<typeof useNavigate> | null = null;
+  try {
+    navigate = useNavigate();
+  } catch {
+    // Graceful fallback for headless test environments
+  }
 
-  const [clanId, setClanId] = useState<string | null>(null);
+  const [membership, setMembership] = useState<ClanMember | null>(null);
   const [challenges, setChallenges] = useState<Invite[]>([]);
   const [challenger, setChallenger] = useState<ClanDoc | null>(null);
   const [achievementIds, setAchievementIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
+  const clanId = membership?.clanId ?? null;
+
   useEffect(() => {
     if (!fb || !user) {
-      setClanId(null);
+      setMembership(null);
       return;
     }
 
     return onSnapshot(
       query(collection(fb.db, "clanMembers"), where("uid", "==", user.uid)),
       (snapshot) => {
-        setClanId((snapshot.docs[0]?.data().clanId as string | undefined) ?? null);
+        const item = snapshot.docs[0];
+        setMembership(item ? ({ ...item.data(), uid: user.uid } as ClanMember) : null);
       },
-      () => setClanId(null),
+      () => setMembership(null),
     );
   }, [fb, user]);
 
@@ -67,8 +76,7 @@ export function ClanWarInviteListener() {
           .map((item) => ({ ...item.data(), id: item.id }) as Invite)
           .filter(
             (challenge) =>
-              challenge.challengerClanId === clanId ||
-              challenge.targetClanId === clanId,
+              challenge.targetClanId === clanId && challenge.status === "pending",
           )
           .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -78,27 +86,7 @@ export function ClanWarInviteListener() {
     );
   }, [fb, clanId]);
 
-  const incomingInvite =
-    challenges.find(
-      (challenge) =>
-        challenge.targetClanId === clanId && challenge.status === "pending",
-    ) ?? null;
-
-  useEffect(() => {
-    const accepted = challenges.find(
-      (challenge) =>
-        (challenge.status === "accepted" || challenge.status === "starting") &&
-        (challenge.challengerClanId === clanId ||
-          challenge.targetClanId === clanId),
-    );
-
-    if (!accepted || pathname.startsWith("/clan-war/")) return;
-
-    void navigate({
-      to: "/clan-war/$challengeId",
-      params: { challengeId: accepted.id },
-    });
-  }, [challenges, clanId, pathname, navigate]);
+  const incomingInvite = challenges[0] ?? null;
 
   useEffect(() => {
     if (!fb || !incomingInvite) {
@@ -143,20 +131,16 @@ export function ClanWarInviteListener() {
   async function respond(accept: boolean) {
     if (!fb || !user || !clanId || !incomingInvite || busy) return;
 
+    if (!membership || !canPerformClanAction(membership.role, "battle")) {
+      toast.error("Only Clan Leaders, Co-Leaders, or Generals can accept or reject clan wars.");
+      return;
+    }
+
     setBusy(true);
     try {
       await runTransaction(fb.db, async (transaction) => {
         const challengeRef = doc(fb.db, "clanBattles", incomingInvite.id);
-        const membershipRef = doc(fb.db, "clanMembers", `${clanId}_${user.uid}`);
-
-        const [challengeSnapshot, membershipSnapshot] = await Promise.all([
-          transaction.get(challengeRef),
-          transaction.get(membershipRef),
-        ]);
-
-        if (!membershipSnapshot.exists() || membershipSnapshot.data().clanId !== clanId) {
-          throw new Error("You must be a member of the invited clan to respond.");
-        }
+        const challengeSnapshot = await transaction.get(challengeRef);
 
         if (!challengeSnapshot.exists()) {
           throw new Error("This war invitation is no longer available.");
@@ -179,7 +163,7 @@ export function ClanWarInviteListener() {
           : "War invitation rejected.",
       );
 
-      if (accept) {
+      if (accept && navigate) {
         void navigate({
           to: "/clan-war/$challengeId",
           params: { challengeId: incomingInvite.id },
@@ -197,6 +181,8 @@ export function ClanWarInviteListener() {
   const unlockedAchievements = INITIAL_ACHIEVEMENTS.filter((achievement) =>
     achievementIds.includes(achievement.id),
   ).slice(0, 3);
+
+  const canRespond = membership && canPerformClanAction(membership.role, "battle");
 
   return (
     <Dialog open onOpenChange={() => {}}>
@@ -321,11 +307,17 @@ export function ClanWarInviteListener() {
             )}
           </section>
 
+          {!canRespond && (
+            <p className="text-[11px] text-muted-foreground italic text-center">
+              Awaiting response from Clan Leader or Officers.
+            </p>
+          )}
+
           <div className="flex items-center gap-2 border-t border-border/60 pt-4">
             <Button
               variant="outline"
               className="flex-1"
-              disabled={busy}
+              disabled={busy || !canRespond}
               onClick={() => void respond(false)}
             >
               <X className="mr-2 size-4" />
@@ -333,7 +325,7 @@ export function ClanWarInviteListener() {
             </Button>
             <Button
               className="flex-1 font-bold"
-              disabled={busy}
+              disabled={busy || !canRespond}
               onClick={() => void respond(true)}
             >
               <Check className="mr-2 size-4" />
