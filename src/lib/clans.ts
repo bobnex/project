@@ -29,6 +29,7 @@ export interface ClanMember {
   role: ClanRole;
   joinedAt: number;
   contributionScore: number;
+  weeklyContributionXP?: number;
   battlesWon: number;
   battlesPlayed: number;
   questionsAnswered: number;
@@ -47,11 +48,23 @@ export interface ClanAnnouncement {
 export interface ClanActivity {
   id: string;
   clanId: string;
-  type: "member_joined" | "member_left" | "battle_won" | "battle_lost" | "battle_drawn" | "mission_completed" | "achievement_unlocked" | "level_up";
+  type:
+    | "create"
+    | "member_joined"
+    | "member_left"
+    | "battle_won"
+    | "battle_lost"
+    | "battle_drawn"
+    | "mission_completed"
+    | "achievement_unlocked"
+    | "level_up";
   description: string;
   actorName?: string;
   timestamp: number;
 }
+
+export const CLAN_CREATION_MIN_LEVEL = 6;
+export const CLAN_CREATION_FEE_COINS = 100;
 
 export interface ClanCreationFeeOption {
   id: string;
@@ -80,6 +93,8 @@ export interface ClanDoc {
   banner: string;
   leaderUid: string;
   leaderName: string;
+  coLeaderUids?: string[];
+  minTrophyRequirement?: number;
   level: number;
   xp: number;
   competitivePoints: number;
@@ -194,7 +209,10 @@ export function calculateClanLevel(xp: number): { level: number; currentLevelXp:
   return { level, currentLevelXp, nextLevelXp };
 }
 
-export function canPerformClanAction(role: ClanRole, action: "disband" | "transfer" | "promote" | "kick" | "announce" | "battle" | "claim"): boolean {
+export function canPerformClanAction(
+  role: ClanRole,
+  action: "disband" | "transfer" | "promote" | "kick" | "announce" | "battle" | "claim"
+): boolean {
   switch (action) {
     case "disband":
     case "transfer":
