@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as PlayerAdminRouteImport } from './routes/_player.admin'
 import { Route as PlayerBattleRouteImport } from './routes/_player.battle'
+import { Route as PlayerClansRouteImport } from './routes/_player.clans'
 import { Route as PlayerCoursesRouteImport } from './routes/_player.courses'
 import { Route as PlayerFriendsRouteImport } from './routes/_player.friends'
 import { Route as PlayerGhostRouteImport } from './routes/_player.ghost'
@@ -28,6 +29,7 @@ import { Route as PlayerSettingsRouteImport } from './routes/_player.settings'
 import { Route as PlayerShopRouteImport } from './routes/_player.shop'
 import { Route as PlayerCbtIndexRouteImport } from './routes/_player.cbt.index'
 import { Route as PlayerCbtCourseIdRouteImport } from './routes/_player.cbt.$courseId'
+import { Route as PlayerClanWarChallengeIdRouteImport } from './routes/_player.clan-war.$challengeId'
 import { Route as PlayerMatchMatchIdRouteImport } from './routes/_player.match.$matchId'
 import { Route as PlayerReviewMatchIdRouteImport } from './routes/_player.review.$matchId'
 import { Route as PlayerTournamentsIndexRouteImport } from './routes/_player.tournaments.index'
@@ -65,6 +67,11 @@ const PlayerAdminRoute = PlayerAdminRouteImport.update({
 const PlayerBattleRoute = PlayerBattleRouteImport.update({
   id: '/battle',
   path: '/battle',
+  getParentRoute: () => PlayerRoute,
+} as any)
+const PlayerClansRoute = PlayerClansRouteImport.update({
+  id: '/clans',
+  path: '/clans',
   getParentRoute: () => PlayerRoute,
 } as any)
 const PlayerCoursesRoute = PlayerCoursesRouteImport.update({
@@ -127,6 +134,12 @@ const PlayerCbtCourseIdRoute = PlayerCbtCourseIdRouteImport.update({
   path: '/cbt/$courseId',
   getParentRoute: () => PlayerRoute,
 } as any)
+const PlayerClanWarChallengeIdRoute =
+  PlayerClanWarChallengeIdRouteImport.update({
+    id: '/clan-war/$challengeId',
+    path: '/clan-war/$challengeId',
+    getParentRoute: () => PlayerRoute,
+  } as any)
 const PlayerMatchMatchIdRoute = PlayerMatchMatchIdRouteImport.update({
   id: '/match/$matchId',
   path: '/match/$matchId',
@@ -156,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/admin': typeof PlayerAdminRoute
   '/battle': typeof PlayerBattleRoute
+  '/clans': typeof PlayerClansRoute
   '/courses': typeof PlayerCoursesRoute
   '/friends': typeof PlayerFriendsRoute
   '/ghost': typeof PlayerGhostRoute
@@ -167,6 +181,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof PlayerSettingsRoute
   '/shop': typeof PlayerShopRoute
   '/cbt/$courseId': typeof PlayerCbtCourseIdRoute
+  '/clan-war/$challengeId': typeof PlayerClanWarChallengeIdRoute
   '/match/$matchId': typeof PlayerMatchMatchIdRoute
   '/review/$matchId': typeof PlayerReviewMatchIdRoute
   '/tournaments/$tournamentId': typeof PlayerTournamentsTournamentIdRoute
@@ -180,6 +195,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/admin': typeof PlayerAdminRoute
   '/battle': typeof PlayerBattleRoute
+  '/clans': typeof PlayerClansRoute
   '/courses': typeof PlayerCoursesRoute
   '/friends': typeof PlayerFriendsRoute
   '/ghost': typeof PlayerGhostRoute
@@ -191,6 +207,7 @@ export interface FileRoutesByTo {
   '/settings': typeof PlayerSettingsRoute
   '/shop': typeof PlayerShopRoute
   '/cbt/$courseId': typeof PlayerCbtCourseIdRoute
+  '/clan-war/$challengeId': typeof PlayerClanWarChallengeIdRoute
   '/match/$matchId': typeof PlayerMatchMatchIdRoute
   '/review/$matchId': typeof PlayerReviewMatchIdRoute
   '/tournaments/$tournamentId': typeof PlayerTournamentsTournamentIdRoute
@@ -206,6 +223,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_player/admin': typeof PlayerAdminRoute
   '/_player/battle': typeof PlayerBattleRoute
+  '/_player/clans': typeof PlayerClansRoute
   '/_player/courses': typeof PlayerCoursesRoute
   '/_player/friends': typeof PlayerFriendsRoute
   '/_player/ghost': typeof PlayerGhostRoute
@@ -217,6 +235,7 @@ export interface FileRoutesById {
   '/_player/settings': typeof PlayerSettingsRoute
   '/_player/shop': typeof PlayerShopRoute
   '/_player/cbt/$courseId': typeof PlayerCbtCourseIdRoute
+  '/_player/clan-war/$challengeId': typeof PlayerClanWarChallengeIdRoute
   '/_player/match/$matchId': typeof PlayerMatchMatchIdRoute
   '/_player/review/$matchId': typeof PlayerReviewMatchIdRoute
   '/_player/tournaments/$tournamentId': typeof PlayerTournamentsTournamentIdRoute
@@ -232,6 +251,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/admin'
     | '/battle'
+    | '/clans'
     | '/courses'
     | '/friends'
     | '/ghost'
@@ -243,6 +263,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shop'
     | '/cbt/$courseId'
+    | '/clan-war/$challengeId'
     | '/match/$matchId'
     | '/review/$matchId'
     | '/tournaments/$tournamentId'
@@ -256,6 +277,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/admin'
     | '/battle'
+    | '/clans'
     | '/courses'
     | '/friends'
     | '/ghost'
@@ -267,6 +289,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shop'
     | '/cbt/$courseId'
+    | '/clan-war/$challengeId'
     | '/match/$matchId'
     | '/review/$matchId'
     | '/tournaments/$tournamentId'
@@ -281,6 +304,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_player/admin'
     | '/_player/battle'
+    | '/_player/clans'
     | '/_player/courses'
     | '/_player/friends'
     | '/_player/ghost'
@@ -292,6 +316,7 @@ export interface FileRouteTypes {
     | '/_player/settings'
     | '/_player/shop'
     | '/_player/cbt/$courseId'
+    | '/_player/clan-war/$challengeId'
     | '/_player/match/$matchId'
     | '/_player/review/$matchId'
     | '/_player/tournaments/$tournamentId'
@@ -356,6 +381,13 @@ declare module '@tanstack/react-router' {
       path: '/battle'
       fullPath: '/battle'
       preLoaderRoute: typeof PlayerBattleRouteImport
+      parentRoute: typeof PlayerRoute
+    }
+    '/_player/clans': {
+      id: '/_player/clans'
+      path: '/clans'
+      fullPath: '/clans'
+      preLoaderRoute: typeof PlayerClansRouteImport
       parentRoute: typeof PlayerRoute
     }
     '/_player/courses': {
@@ -442,6 +474,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayerCbtCourseIdRouteImport
       parentRoute: typeof PlayerRoute
     }
+    '/_player/clan-war/$challengeId': {
+      id: '/_player/clan-war/$challengeId'
+      path: '/clan-war/$challengeId'
+      fullPath: '/clan-war/$challengeId'
+      preLoaderRoute: typeof PlayerClanWarChallengeIdRouteImport
+      parentRoute: typeof PlayerRoute
+    }
     '/_player/match/$matchId': {
       id: '/_player/match/$matchId'
       path: '/match/$matchId'
@@ -476,6 +515,7 @@ declare module '@tanstack/react-router' {
 interface PlayerRouteChildren {
   PlayerAdminRoute: typeof PlayerAdminRoute
   PlayerBattleRoute: typeof PlayerBattleRoute
+  PlayerClansRoute: typeof PlayerClansRoute
   PlayerCoursesRoute: typeof PlayerCoursesRoute
   PlayerFriendsRoute: typeof PlayerFriendsRoute
   PlayerGhostRoute: typeof PlayerGhostRoute
@@ -487,6 +527,7 @@ interface PlayerRouteChildren {
   PlayerSettingsRoute: typeof PlayerSettingsRoute
   PlayerShopRoute: typeof PlayerShopRoute
   PlayerCbtCourseIdRoute: typeof PlayerCbtCourseIdRoute
+  PlayerClanWarChallengeIdRoute: typeof PlayerClanWarChallengeIdRoute
   PlayerMatchMatchIdRoute: typeof PlayerMatchMatchIdRoute
   PlayerReviewMatchIdRoute: typeof PlayerReviewMatchIdRoute
   PlayerTournamentsTournamentIdRoute: typeof PlayerTournamentsTournamentIdRoute
@@ -497,6 +538,7 @@ interface PlayerRouteChildren {
 const PlayerRouteChildren: PlayerRouteChildren = {
   PlayerAdminRoute: PlayerAdminRoute,
   PlayerBattleRoute: PlayerBattleRoute,
+  PlayerClansRoute: PlayerClansRoute,
   PlayerCoursesRoute: PlayerCoursesRoute,
   PlayerFriendsRoute: PlayerFriendsRoute,
   PlayerGhostRoute: PlayerGhostRoute,
@@ -508,6 +550,7 @@ const PlayerRouteChildren: PlayerRouteChildren = {
   PlayerSettingsRoute: PlayerSettingsRoute,
   PlayerShopRoute: PlayerShopRoute,
   PlayerCbtCourseIdRoute: PlayerCbtCourseIdRoute,
+  PlayerClanWarChallengeIdRoute: PlayerClanWarChallengeIdRoute,
   PlayerMatchMatchIdRoute: PlayerMatchMatchIdRoute,
   PlayerReviewMatchIdRoute: PlayerReviewMatchIdRoute,
   PlayerTournamentsTournamentIdRoute: PlayerTournamentsTournamentIdRoute,

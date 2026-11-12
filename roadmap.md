@@ -1,6 +1,8 @@
 # Juvora development roadmap
 
 ## Current delivery
+- [ ] Fix clan subscriptions, membership transactions, challenges, full-roster war matches and once-only results; verify regression tests.
+- [ ] Verify a real authenticated clan war; blocked if Firebase account access or deployed permissions are unavailable.
 - [ ] Repair tournament page controls, spectators, loading errors and trophy display; run regression tests.
 - [ ] Implement Firebase-backed clan foundation, hierarchy, headquarters, invitations and audited membership.
 - [ ] Implement clan wars using existing matches, verified progression, missions, manual achievement rewards and leaderboards.

@@ -23,6 +23,7 @@ export const ROLE_LABELS: Record<ClanRole, string> = {
 };
 
 export interface ClanMember {
+  clanId: string;
   uid: string;
   username: string;
   role: ClanRole;
@@ -46,7 +47,7 @@ export interface ClanAnnouncement {
 export interface ClanActivity {
   id: string;
   clanId: string;
-  type: "member_joined" | "member_left" | "battle_won" | "battle_lost" | | "battle_drawn" | "mission_completed" | "achievement_unlocked" | "level_up";
+  type: "member_joined" | "member_left" | "battle_won" | "battle_lost" | "battle_drawn" | "mission_completed" | "achievement_unlocked" | "level_up";
   description: string;
   actorName?: string;
   timestamp: number;
@@ -104,7 +105,9 @@ export interface ClanBattleChallenge {
   targetClanName: string;
   targetClanTag: string;
   format: "1v1" | "3v3" | "5v5";
-  status: "pending" | "accepted" | "rejected" | "completed";
+  status: "pending" | "accepted" | "rejected" | "starting" | "in_progress" | "completed";
+  matchIds?: string[];
+  matchId?: string;
   challengerRoster: string[]; // uids
   targetRoster?: string[];
   winnerClanId?: string;
@@ -170,7 +173,7 @@ export function getMaxMembersForLevel(level: number): number {
     .map(Number)
     .sort((a, b) => b - a);
   for (const l of levels) {
-    if (level >= l) return CLAN_CAPACITY_BY_LEVEL[l]!;
+    if (level >= l) return CLAN_CAPACITY_BY_LEVEL[l] ?? 5;
   }
   return 5;
 }

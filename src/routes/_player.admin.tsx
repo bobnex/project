@@ -506,7 +506,7 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
           options: q.options,
           answer: q.correctIndex,
           correctIndex: q.correctIndex,
-          explanation: q.explanation || null,
+          explanation: null,
           reported: false,
           active: true,
           createdAt: Date.now(),

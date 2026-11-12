@@ -22,13 +22,13 @@ export interface RankedConfig {
   /** Ranked losses absorbed at a rank's starting RP before a demotion happens (0 = off). */
   demotionShield: number;
   /** Admin-configured active season number (e.g. 1) */
-  seasonNumber?: number;
+  seasonNumber?: number | undefined;
   /** Custom display name for the season (e.g. "Season 1") */
-  seasonName?: string;
+  seasonName?: string | undefined;
   /** Milliseconds timestamp when season began */
-  seasonStartedAt?: number;
+  seasonStartedAt?: number | undefined;
   /** Milliseconds timestamp when season concludes */
-  seasonEndsAt?: number;
+  seasonEndsAt?: number | undefined;
 }
 
 export const DEFAULT_TIERS: Tier[] = [

@@ -72,6 +72,10 @@ export interface Match {
   /** Set when this battle belongs to a tournament fixture. */
   fixtureId?: string;
   tournamentId?: string;
+  clanWarId?: string;
+  clanAId?: string;
+  clanBId?: string;
+  forfeitedUid?: string;
 }
 
 export function newPlayer(name: string): Player {

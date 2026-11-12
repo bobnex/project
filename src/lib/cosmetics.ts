@@ -503,7 +503,7 @@ export function normalizeEconomy(raw: unknown): EconomySettings {
         ...base,
         price: custom.price,
         active: typeof custom.active === "boolean" ? custom.active : base.active,
-        cardDesign: custom.cardDesign ?? base.cardDesign,
+        ...((custom.cardDesign ?? base.cardDesign) ? { cardDesign: custom.cardDesign ?? base.cardDesign } : {}),
       };
     }
     return base;
