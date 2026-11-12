@@ -10,6 +10,8 @@
 <!-- LOVABLE:END -->
 
 ## Project rules
+- Clan trusted operations use Firebase-token-verified server functions and a fetch-based Firestore transaction adapter; the private service credential never enters browser code.
+- Clan war rules define paired duels and aggregate scores independently from UI; transactions settle progression once per completed war.
 - Paid cosmetics use a dedicated Firestore wallet, separate from game-reward coins; transactions and dedicated Firestore rules protect approvals, spending, ownership and equipment without changing scoring.
 - Shop rules are an additive deployment fragment, not a replacement for existing game rules; purchases stay disabled until admins configure packs and install restrictive wallet rules.
 - Admin access is decided by the hardcoded `ADMIN_EMAILS` list in `src/lib/app-context.tsx` — the owner asked for no Firebase role setup.

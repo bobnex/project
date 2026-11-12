@@ -315,13 +315,14 @@ function ClanWarWaitingRoom() {
   }
 
   async function joinWar() {
-    if (!fb || !challenge || !membership || busy) return;
+    if (!fb || !user || !challenge || !membership || busy) return;
+    const currentUid = user.uid;
 
     const isChallengerSide = membership.clanId === challenge.challengerClanId;
     const currentRoster = isChallengerSide ? challengerRoster : targetRoster;
     const field = isChallengerSide ? "challengerRoster" : "targetRoster";
 
-    if (currentRoster.includes(user.uid)) return;
+    if (currentRoster.includes(currentUid)) return;
 
     if (currentRoster.length >= expectedPlayers) {
       toast.error(`This clan's ${challenge.format} roster is already full.`);
@@ -332,7 +333,7 @@ function ClanWarWaitingRoom() {
     try {
       await runTransaction(fb.db, async (transaction) => {
         const challengeRef = doc(fb.db, "clanBattles", challenge.id);
-        const memberRef = doc(fb.db, "clanMembers", `${membership.clanId}_${user.uid}`);
+        const memberRef = doc(fb.db, "clanMembers", `${membership.clanId}_${currentUid}`);
 
         const [challengeSnapshot, memberSnapshot] = await Promise.all([
           transaction.get(challengeRef),
@@ -353,14 +354,14 @@ function ClanWarWaitingRoom() {
         }
 
         const roster = (data[field] ?? []) as string[];
-        if (roster.includes(user.uid)) return;
+        if (roster.includes(currentUid)) return;
 
         if (roster.length >= expectedPlayers) {
           throw new Error("Your clan's roster is already full.");
         }
 
         transaction.update(challengeRef, {
-          [field]: [...roster, user.uid],
+          [field]: [...roster, currentUid],
         });
       });
 
