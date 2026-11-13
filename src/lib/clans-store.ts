@@ -174,6 +174,22 @@ export function useClanBattles(clanId: string | null) {
   return battles;
 }
 
+function newMember(clanId: string, uid: string, username: string, role: ClanMember["role"], now: number): ClanMember {
+  return {
+    clanId,
+    uid,
+    username,
+    role,
+    joinedAt: now,
+    contributionScore: 0,
+    weeklyContributionXP: 0,
+    battlesWon: 0,
+    battlesPlayed: 0,
+    questionsAnswered: 0,
+    missionsCompleted: 0,
+  };
+}
+
 export async function createClan(
   db: Firestore,
   userUid: string,
@@ -241,42 +257,34 @@ export async function createClan(
 
     const newClan: Omit<ClanDoc, "id"> = {
       name: cleanName,
+      nameLower: cleanName.toLowerCase(),
       tag: cleanTag,
+      tagUpper: cleanTag,
       description: clanData.description.trim(),
       motto: clanData.motto.trim(),
       emblem: clanData.emblem,
       banner: clanData.banner,
       leaderUid: userUid,
+      leaderName: username,
       coLeaderUids: [],
+      minTrophyRequirement: clanData.minTrophyRequirement,
       level: 1,
-      experience: 0,
+      xp: 0,
       competitivePoints: 0,
       memberCount: 1,
       maxMembers: getMaxMembersForLevel(1),
-      joinPolicy: clanData.joinPolicy,
-      minTrophyRequirement: clanData.minTrophyRequirement,
+      isPublic: clanData.joinPolicy !== "invite_only",
+      creationFeeTier: clanData.feeTier,
       totalBattlesWon: 0,
       totalBattlesLost: 0,
-      totalBattlesDrawn: 0,
-      currentWinStreak: 0,
-      bestWinStreak: 0,
+      totalTournamentWins: 0,
       achievementsUnlockedCount: 0,
       createdAt: now,
-      updatedAt: now,
     };
 
-    tx.set(clanRef, newClan);
+    tx.set(clanRef, { ...newClan, joinPolicy: clanData.joinPolicy, updatedAt: now });
 
-    const leaderMember: ClanMember = {
-      clanId: clanRef.id,
-      uid: userUid,
-      username,
-      role: "leader",
-      joinedAt: now,
-      weeklyContributionXP: 0,
-      totalContributionXP: 0,
-      lastActiveAt: now,
-    };
+    const leaderMember: ClanMember = newMember(clanRef.id, userUid, username, "leader", now);
 
     tx.set(memberRef, leaderMember);
 
@@ -284,9 +292,8 @@ export async function createClan(
     const act: Omit<ClanActivity, "id"> = {
       clanId: clanRef.id,
       type: "create",
-      actorUid: userUid,
       actorName: username,
-      details: `Established Clan [${cleanTag}] ${cleanName}.`,
+      description: `Established Clan [${cleanTag}] ${cleanName}.`,
       timestamp: now,
     };
     tx.set(actRef, act);
@@ -305,8 +312,8 @@ export async function requestJoinClan(
   if (clan.memberCount >= clan.maxMembers) {
     throw new Error("This clan has reached maximum member capacity.");
   }
-  if (playerRP < clan.minTrophyRequirement) {
-    throw new Error(`Minimum ${clan.minTrophyRequirement} RP required to enlist in this order.`);
+  if (playerRP < (clan.minTrophyRequirement ?? 0)) {
+    throw new Error(`Minimum ${clan.minTrophyRequirement ?? 0} RP required to enlist in this order.`);
   }
 
   const existingMemberSnap = await getDocs(
@@ -328,16 +335,7 @@ export async function requestJoinClan(
       throw new Error("Clan capacity was reached.");
     }
 
-    const member: ClanMember = {
-      clanId: clan.id,
-      uid: userUid,
-      username,
-      role: "recruit",
-      joinedAt: now,
-      weeklyContributionXP: 0,
-      totalContributionXP: 0,
-      lastActiveAt: now,
-    };
+    const member: ClanMember = newMember(clan.id, userUid, username, "recruit", now);
 
     tx.set(memberRef, member);
     tx.update(clanRef, {

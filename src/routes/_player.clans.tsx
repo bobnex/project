@@ -124,9 +124,12 @@ const SAMPLE_MISSIONS: ClanMission[] = [
 function ClansPage() {
   const navigate = useNavigate();
   const { profile, user, fb } = useApp();
-  const { clan, membership, members, achievements } = usePlayerClan();
+  const { clan, membership, members, unlockedAchievementIds } = usePlayerClan(user?.uid);
+  const achievements: Record<string, { claimed?: boolean }> = Object.fromEntries(
+    unlockedAchievementIds.map((id) => [id, { claimed: false }]),
+  );
   const { clans } = useClansDirectory();
-  const clanBattles = useClanBattles(clan?.id);
+  const clanBattles = useClanBattles(clan?.id ?? null);
 
   const [activeTab, setActiveTab] = useState<Tab>("hq");
   const [searchQuery, setSearchQuery] = useState("");
@@ -156,14 +159,16 @@ function ClansPage() {
     if (!fb || !user || !profile) return;
     setSubmitting(true);
     try {
-      await createClan(fb.db, user, profile, {
+      await createClan(fb.db, user.uid, profile.username, profile.level ?? 1, profile.coins ?? 0, {
         name,
         tag,
         motto,
         description,
         emblem: selectedEmblem,
         banner: selectedBanner,
-        feeOption: selectedFee,
+        joinPolicy: "open",
+        minTrophyRequirement: 0,
+        feeTier: selectedFee.coins > 0 ? "coins" : "free",
       });
       toast.success("Clan founded successfully!");
       setCreateOpen(false);
@@ -179,7 +184,7 @@ function ClansPage() {
   async function handleJoin(c: ClanDoc) {
     if (!fb || !user || !profile) return;
     try {
-      await requestJoinClan(fb.db, user, profile, c);
+      await requestJoinClan(fb.db, c, user.uid, profile.username, profile.rp ?? 0);
       toast.success(`Joined [${c.tag}] ${c.name}!`);
     } catch (err: any) {
       toast.error(err.message || "Could not join clan");
@@ -187,10 +192,9 @@ function ClansPage() {
   }
 
   async function handleLeave() {
-    if (!fb || !clan || !user) return;
-    const isLeader = membership?.role === "leader";
+    if (!fb || !clan || !user || !profile) return;
     try {
-      await leaveClan(fb.db, clan.id, user.uid, isLeader);
+      await leaveClan(fb.db, clan.id, user.uid, profile.username);
       toast.success("You left the clan.");
     } catch (err: any) {
       toast.error(err.message || "Could not leave clan");
@@ -198,9 +202,9 @@ function ClansPage() {
   }
 
   async function handleKick(targetUid: string, targetName: string) {
-    if (!fb || !clan || !user) return;
+    if (!fb || !clan || !user || !profile) return;
     try {
-      await kickClanMember(fb.db, clan.id, targetUid);
+      await kickClanMember(fb.db, clan.id, targetUid, targetName, user.uid, profile.username);
       toast.success(`Removed ${targetName} from the clan.`);
     } catch (err: any) {
       toast.error(err.message || "Could not remove member");
@@ -210,7 +214,7 @@ function ClansPage() {
   async function handleAnnouncement() {
     if (!fb || !clan || !user || !profile) return;
     try {
-      await addClanAnnouncement(fb.db, clan.id, { uid: user.uid, username: profile.username }, annTitle, annBody);
+      await addClanAnnouncement(fb.db, clan.id, user.uid, profile.username, annBody.trim() ? `${annTitle.trim()}: ${annBody.trim()}` : annTitle.trim());
       toast.success("Announcement published!");
       setAnnTitle("");
       setAnnBody("");
