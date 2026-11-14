@@ -2,32 +2,32 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Award,
+  CheckCircle2,
+  Coins,
   Crown,
-  Flame,
+  Lock,
+  LogOut,
+  Megaphone,
   PlusCircle,
   Search,
   Shield,
   Swords,
-  Target,
   Trophy,
-  Users,
-  CheckCircle2,
-  Lock,
-  Coins,
-  ChevronRight,
-  LogOut,
-  Megaphone,
   UserMinus,
-  Sparkles,
-  Calendar,
-  Zap,
+  Users,
 } from "lucide-react";
-import { useApp } from "@/lib/app-context";
+
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "sonner";
+import { useApp } from "@/lib/app-context";
 import {
   canPerformClanAction,
   CLAN_BANNERS,
@@ -37,7 +37,6 @@ import {
   ROLE_LABELS,
   type ClanDoc,
   type ClanRole,
-  type ClanMission,
 } from "@/lib/clans";
 import {
   addClanAnnouncement,
@@ -52,6 +51,7 @@ import {
   useClansDirectory,
   usePlayerClan,
 } from "@/lib/clans-store";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_player/clans")({
   component: ClansPage,
@@ -64,70 +64,13 @@ export const Route = createFileRoute("/_player/clans")({
   }),
 });
 
-type Tab = "hq" | "discover" | "battles" | "missions" | "achievements" | "leaderboard";
-
-const SAMPLE_MISSIONS: ClanMission[] = [
-  {
-    id: "daily_battles_3",
-    title: "Vanguard Skirmish",
-    description: "Win 3 Clan War duels as a clan today.",
-    type: "daily",
-    targetMetric: "battle_wins",
-    targetCount: 3,
-    currentCount: 1,
-    rewardXp: 150,
-    rewardCoins: 50,
-    completed: false,
-    expiresAt: Date.now() + 14 * 3600 * 1000,
-  },
-  {
-    id: "daily_questions_50",
-    title: "Scholastic Blitz",
-    description: "Answer 50 questions correctly across all members.",
-    type: "daily",
-    targetMetric: "questions_answered",
-    targetCount: 50,
-    currentCount: 38,
-    rewardXp: 120,
-    rewardCoins: 40,
-    completed: false,
-    expiresAt: Date.now() + 14 * 3600 * 1000,
-  },
-  {
-    id: "weekly_wars_10",
-    title: "Weekly Domination",
-    description: "Participate in 10 Clan War skirmishes this week.",
-    type: "weekly",
-    targetMetric: "battle_wins",
-    targetCount: 10,
-    currentCount: 6,
-    rewardXp: 500,
-    rewardCoins: 200,
-    completed: false,
-    expiresAt: Date.now() + 4 * 86400 * 1000,
-  },
-  {
-    id: "weekly_active_members",
-    title: "Full Order Rally",
-    description: "Have at least 5 distinct members complete a ranked or clan match.",
-    type: "weekly",
-    targetMetric: "active_members",
-    targetCount: 5,
-    currentCount: 5,
-    rewardXp: 400,
-    rewardCoins: 150,
-    completed: true,
-    expiresAt: Date.now() + 4 * 86400 * 1000,
-  },
-];
+type Tab = "hq" | "discover" | "battles" | "achievements" | "leaderboard";
 
 function ClansPage() {
   const navigate = useNavigate();
   const { profile, user, fb } = useApp();
-  const { clan, membership, members, unlockedAchievementIds } = usePlayerClan(user?.uid);
-  const achievements: Record<string, { claimed?: boolean }> = Object.fromEntries(
-    unlockedAchievementIds.map((id) => [id, { claimed: false }]),
-  );
+  const { clan, membership, members, unlockedAchievementIds, achievementClaims } = usePlayerClan(user?.uid);
+  const unlockedAchievementSet = new Set(unlockedAchievementIds);
   const { clans } = useClansDirectory();
   const clanBattles = useClanBattles(clan?.id ?? null);
 
@@ -214,7 +157,13 @@ function ClansPage() {
   async function handleAnnouncement() {
     if (!fb || !clan || !user || !profile) return;
     try {
-      await addClanAnnouncement(fb.db, clan.id, user.uid, profile.username, annBody.trim() ? `${annTitle.trim()}: ${annBody.trim()}` : annTitle.trim());
+      await addClanAnnouncement(
+        fb.db,
+        clan.id,
+        user.uid,
+        profile.username,
+        annBody.trim() ? `${annTitle.trim()}: ${annBody.trim()}` : annTitle.trim(),
+      );
       toast.success("Announcement published!");
       setAnnTitle("");
       setAnnBody("");
@@ -238,9 +187,17 @@ function ClansPage() {
     if (!fb || !clan || !targetClan || !user) return;
     setSendingChallenge(true);
     try {
-      const challengeId = (await createClanChallenge(fb.db, clan, targetClan, challengeFormat, [user.uid])) as unknown as string | void;
+      const challengeId = (await createClanChallenge(
+        fb.db,
+        clan,
+        targetClan,
+        challengeFormat,
+        [user.uid],
+      )) as unknown as string | void;
+
       toast.success(`Challenge sent to [${targetClan.tag}] ${targetClan.name}!`);
       setTargetClan(null);
+
       if (typeof challengeId === "string" && challengeId.length > 0) {
         navigate({ to: "/clan-war/$challengeId", params: { challengeId } });
       } else {
@@ -254,18 +211,22 @@ function ClansPage() {
   }
 
   const filteredClans = clans.filter((c) =>
-    searchQuery ? c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.tag.toLowerCase().includes(searchQuery.toLowerCase()) : true
+    searchQuery
+      ? c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.tag.toLowerCase().includes(searchQuery.toLowerCase())
+      : true,
   );
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
             <Shield className="size-7 text-primary" /> Juvora Clans V1
           </h1>
-          <p className="text-muted-foreground text-sm">Competitive academic team esports & collective dominance.</p>
+          <p className="text-muted-foreground text-sm">
+            Competitive academic team esports & collective dominance.
+          </p>
         </div>
 
         {!clan && (
@@ -292,25 +253,41 @@ function ClansPage() {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2 space-y-1">
                     <label className="text-xs font-semibold">Clan Name</label>
-                    <Input placeholder="e.g. Apex Scholars" value={name} onChange={(e) => setName(e.target.value)} />
+                    <Input
+                      placeholder="e.g. Apex Scholars"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-semibold">Tag (2-6)</label>
-                    <Input placeholder="APEX" value={tag} onChange={(e) => setTag(e.target.value.toUpperCase())} maxLength={6} />
+                    <Input
+                      placeholder="APEX"
+                      value={tag}
+                      onChange={(e) => setTag(e.target.value.toUpperCase())}
+                      maxLength={6}
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-semibold">Motto</label>
-                  <Input placeholder="Knowledge is our weapon" value={motto} onChange={(e) => setMotto(e.target.value)} />
+                  <Input
+                    placeholder="Knowledge is our weapon"
+                    value={motto}
+                    onChange={(e) => setMotto(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-semibold">Description</label>
-                  <Textarea placeholder="Our clan competes for academic rankings and weekly crowns..." value={description} onChange={(e) => setDescription(e.target.value)} />
+                  <Textarea
+                    placeholder="Our clan competes for academic rankings and weekly crowns..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
                 </div>
 
-                {/* Emblem Selection */}
                 <div className="space-y-1">
                   <label className="text-xs font-semibold">Choose Emblem</label>
                   <div className="flex flex-wrap gap-2">
@@ -319,7 +296,11 @@ function ClansPage() {
                         key={e}
                         type="button"
                         onClick={() => setSelectedEmblem(e)}
-                        className={`text-xl p-2 rounded-lg border transition-all ${selectedEmblem === e ? "border-primary bg-primary/20 scale-110" : "border-border hover:bg-muted"}`}
+                        className={`text-xl p-2 rounded-lg border transition-all ${
+                          selectedEmblem === e
+                            ? "border-primary bg-primary/20 scale-110"
+                            : "border-border hover:bg-muted"
+                        }`}
                       >
                         {e}
                       </button>
@@ -327,7 +308,6 @@ function ClansPage() {
                   </div>
                 </div>
 
-                {/* Banner Selection */}
                 <div className="space-y-1">
                   <label className="text-xs font-semibold">Choose Banner Style</label>
                   <div className="grid grid-cols-3 gap-2">
@@ -336,13 +316,14 @@ function ClansPage() {
                         key={idx}
                         onClick={() => setSelectedBanner(b)}
                         style={{ background: b }}
-                        className={`h-8 rounded-lg cursor-pointer border-2 transition-all ${selectedBanner === b ? "border-primary scale-105" : "border-transparent opacity-70"}`}
+                        className={`h-8 rounded-lg cursor-pointer border-2 transition-all ${
+                          selectedBanner === b ? "border-primary scale-105" : "border-transparent opacity-70"
+                        }`}
                       />
                     ))}
                   </div>
                 </div>
 
-                {/* Creation Fee Selection */}
                 <div className="space-y-1">
                   <label className="text-xs font-semibold">Initiation Tier</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -350,7 +331,9 @@ function ClansPage() {
                       <div
                         key={f.id}
                         onClick={() => setSelectedFee(f)}
-                        className={`p-2.5 rounded-lg border cursor-pointer text-left transition-all ${selectedFee.id === f.id ? "border-primary bg-primary/10" : "border-border"}`}
+                        className={`p-2.5 rounded-lg border cursor-pointer text-left transition-all ${
+                          selectedFee.id === f.id ? "border-primary bg-primary/10" : "border-border"
+                        }`}
                       >
                         <div className="text-xs font-bold flex items-center justify-between">
                           {f.name}
@@ -364,7 +347,11 @@ function ClansPage() {
                   </div>
                 </div>
 
-                <Button className="w-full font-semibold" disabled={submitting || (profile?.level ?? 0) < 6} onClick={handleCreate}>
+                <Button
+                  className="w-full font-semibold"
+                  disabled={submitting || (profile?.level ?? 0) < 6}
+                  onClick={handleCreate}
+                >
                   {submitting ? "Founding Order..." : "Found Clan"}
                 </Button>
               </div>
@@ -373,13 +360,11 @@ function ClansPage() {
         )}
       </div>
 
-      {/* Navigation Tabs */}
       <div className="flex border-b border-border/60 overflow-x-auto pb-1 gap-1">
         {[
           { key: "hq", label: "My Clan (HQ)", icon: Shield, requiresClan: true },
           { key: "discover", label: "Discover", icon: Search },
           { key: "battles", label: "War Arena", icon: Swords },
-          { key: "missions", label: "Missions", icon: Target },
           { key: "achievements", label: "Achievements", icon: Award },
           { key: "leaderboard", label: "Leaderboard", icon: Trophy },
         ].map((t) => {
@@ -391,7 +376,9 @@ function ClansPage() {
               key={t.key}
               onClick={() => setActiveTab(t.key as Tab)}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                active ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                active
+                  ? "bg-primary text-primary-foreground shadow-glow"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
               <Icon className="size-4" /> {t.label}
@@ -400,10 +387,8 @@ function ClansPage() {
         })}
       </div>
 
-      {/* Tab: Headquarters */}
       {activeTab === "hq" && clan && (
         <div className="space-y-6">
-          {/* Banner & Brand Card */}
           <div className="relative rounded-2xl overflow-hidden border border-border shadow-xl">
             <div style={{ background: clan.banner }} className="h-36 w-full relative flex items-end p-5">
               <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -423,14 +408,17 @@ function ClansPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-black text-foreground drop-shadow">{clan.name}</h2>
-                    <span className="bg-primary text-primary-foreground font-black text-xs px-2 py-0.5 rounded">[{clan.tag}]</span>
+                    <span className="bg-primary text-primary-foreground font-black text-xs px-2 py-0.5 rounded">
+                      [{clan.tag}]
+                    </span>
                   </div>
-                  <p className="text-xs text-foreground/80 italic mt-0.5">"{clan.motto || "Champions of intellect."}"</p>
+                  <p className="text-xs text-foreground/80 italic mt-0.5">
+                    "{clan.motto || "Champions of intellect."}"
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Clan Level & Member Metrics */}
             <div className="p-4 bg-card/60 backdrop-blur grid grid-cols-2 sm:grid-cols-4 gap-3 text-center border-t border-border/40">
               <div className="p-2 rounded-xl bg-muted/40">
                 <div className="text-[11px] text-muted-foreground font-medium">Clan Level</div>
@@ -457,7 +445,6 @@ function ClansPage() {
             </div>
           </div>
 
-          {/* Announcements & Notices */}
           {clan.announcements && clan.announcements.length > 0 && (
             <div className="p-4 rounded-xl border border-border bg-card/40 space-y-2">
               <div className="text-xs font-bold flex items-center gap-2 text-primary">
@@ -475,7 +462,6 @@ function ClansPage() {
             </div>
           )}
 
-          {/* Members Roster */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold flex items-center gap-2">
@@ -490,7 +476,10 @@ function ClansPage() {
 
             <div className="grid gap-2">
               {members.map((m) => (
-                <div key={m.uid} className="p-3 rounded-xl border border-border bg-card/60 flex items-center justify-between">
+                <div
+                  key={m.uid}
+                  className="p-3 rounded-xl border border-border bg-card/60 flex items-center justify-between"
+                >
                   <div className="flex items-center gap-3">
                     <div className="size-9 rounded-full bg-primary/20 text-primary font-bold flex items-center justify-center text-sm">
                       {m.username.charAt(0).toUpperCase()}
@@ -510,30 +499,41 @@ function ClansPage() {
                       <div className="text-[10px] text-muted-foreground">{m.battlesWon} wins</div>
                     </div>
 
-                    {membership && canPerformClanAction(membership.role, "promote") && m.uid !== user?.uid && m.role !== "leader" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-xs h-7"
-                        onClick={() => {
-                          const nextRole: ClanRole = m.role === "recruit" ? "member" : m.role === "member" ? "elite" : "general";
-                          if (fb) updateClanMemberRole(fb.db, clan.id, m.uid, nextRole);
-                        }}
-                      >
-                        Promote
-                      </Button>
-                    )}
+                    {membership &&
+                      canPerformClanAction(membership.role, "promote") &&
+                      m.uid !== user?.uid &&
+                      m.role !== "leader" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs h-7"
+                          onClick={() => {
+                            const nextRole: ClanRole =
+                              m.role === "recruit"
+                                ? "member"
+                                : m.role === "member"
+                                  ? "elite"
+                                  : "general";
+                            if (fb) updateClanMemberRole(fb.db, clan.id, m.uid, nextRole);
+                          }}
+                        >
+                          Promote
+                        </Button>
+                      )}
 
-                    {membership && canPerformClanAction(membership.role, "kick") && m.uid !== user?.uid && m.role !== "leader" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-xs h-7 text-destructive hover:bg-destructive/10"
-                        onClick={() => handleKick(m.uid, m.username)}
-                      >
-                        <UserMinus className="size-3.5" />
-                      </Button>
-                    )}
+                    {membership &&
+                      canPerformClanAction(membership.role, "kick") &&
+                      m.uid !== user?.uid &&
+                      m.role !== "leader" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs h-7 text-destructive hover:bg-destructive/10"
+                          onClick={() => handleKick(m.uid, m.username)}
+                        >
+                          <UserMinus className="size-3.5" />
+                        </Button>
+                      )}
                   </div>
                 </div>
               ))}
@@ -542,7 +542,6 @@ function ClansPage() {
         </div>
       )}
 
-      {/* Tab: Discover Clans */}
       {activeTab === "discover" && (
         <div className="space-y-4">
           <div className="relative">
@@ -557,7 +556,10 @@ function ClansPage() {
 
           <div className="grid gap-3">
             {filteredClans.map((c) => (
-              <div key={c.id} className="p-4 rounded-xl border border-border bg-card/60 flex items-center justify-between">
+              <div
+                key={c.id}
+                className="p-4 rounded-xl border border-border bg-card/60 flex items-center justify-between"
+              >
                 <div className="flex items-center gap-3">
                   <div className="size-12 rounded-xl bg-muted border border-border flex items-center justify-center text-2xl">
                     {c.emblem}
@@ -591,7 +593,6 @@ function ClansPage() {
         </div>
       )}
 
-      {/* Tab: War Arena */}
       {activeTab === "battles" && (
         <div className="space-y-6">
           <div className="p-4 rounded-xl border border-primary/30 bg-primary/10">
@@ -599,19 +600,25 @@ function ClansPage() {
               <Swords className="size-4" /> Clan War Arena
             </h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Challenge rival clans in 1v1 duels, 3v3 skirmishes, and 5v5 supreme clashes. Verified match victories award Clan XP and competitive points.
+              Challenge rival clans in 1v1 duels, 3v3 skirmishes, and 5v5 supreme clashes. Verified match
+              victories award Clan XP and competitive points.
             </p>
           </div>
 
           <div className="space-y-3">
-            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Recent War Matches</h4>
+            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Recent War Matches
+            </h4>
             {clanBattles.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-xs border border-dashed rounded-xl">
                 No active war clashes recorded. Challenge a rival clan from the Discover tab!
               </div>
             ) : (
               clanBattles.map((b) => (
-                <div key={b.id} className="p-3.5 rounded-xl border border-border bg-card/60 flex items-center justify-between gap-3">
+                <div
+                  key={b.id}
+                  className="p-3.5 rounded-xl border border-border bg-card/60 flex items-center justify-between gap-3"
+                >
                   <div>
                     <div className="text-xs font-bold flex items-center gap-1.5">
                       <Swords className="size-3.5 text-primary" />
@@ -634,8 +641,8 @@ function ClansPage() {
                         {b.status === "in_progress"
                           ? "Battle Live"
                           : b.status === "completed"
-                          ? "View Results"
-                          : "Enter War Room"}
+                            ? "View Results"
+                            : "Enter War Room"}
                       </Link>
                     </Button>
                   </div>
@@ -646,68 +653,6 @@ function ClansPage() {
         </div>
       )}
 
-      {/* Tab: Missions */}
-      {activeTab === "missions" && (
-        <div className="space-y-6">
-          <div className="p-4 rounded-xl border border-border bg-card/40 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold flex items-center gap-2 text-primary">
-                <Target className="size-4" /> Clan Orders & Missions
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Work alongside your clan order to fulfill daily and weekly mandates for XP and coin bounties.
-              </p>
-            </div>
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-primary/20 text-primary border border-primary/30 flex items-center gap-1">
-              <Zap className="size-3" /> Active Cycle
-            </span>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {SAMPLE_MISSIONS.map((m) => {
-              const pct = Math.min(100, Math.round((m.currentCount / m.targetCount) * 100));
-              return (
-                <div key={m.id} className="p-4 rounded-xl border border-border bg-card/60 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-foreground">{m.title}</span>
-                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-black bg-muted text-muted-foreground">
-                          {m.type}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">{m.description}</p>
-                    </div>
-                    {m.completed ? (
-                      <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
-                    ) : (
-                      <span className="text-[11px] font-bold text-muted-foreground">{pct}%</span>
-                    )}
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="space-y-1">
-                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-500 ${m.completed ? "bg-emerald-400" : "bg-primary"}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                      <span>Progress: {m.currentCount} / {m.targetCount}</span>
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="size-2.5 text-warning" /> +{m.rewardXp} XP · +{m.rewardCoins} Coins
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Tab: Achievements & Rewards Centre */}
       {activeTab === "achievements" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -715,14 +660,16 @@ function ClansPage() {
               <h3 className="text-sm font-bold flex items-center gap-2">
                 <Award className="size-4 text-warning" /> Trophies & Rewards Centre
               </h3>
-              <p className="text-xs text-muted-foreground">Manual claim required for all unlocked accolades and mixed spoils.</p>
+              <p className="text-xs text-muted-foreground">
+                Manual claim required for all unlocked accolades and mixed spoils.
+              </p>
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {INITIAL_ACHIEVEMENTS.map((ach) => {
-              const unlocked = !!achievements[ach.id];
-              const claimed = achievements[ach.id]?.claimed;
+              const unlocked = unlockedAchievementSet.has(ach.id);
+              const claimed = !!achievementClaims[ach.id];
 
               return (
                 <div
@@ -734,22 +681,35 @@ function ClansPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold">{ach.isSecret && !unlocked ? "Secret Acquired Honour" : ach.title}</span>
+                        <span className="text-xs font-bold">
+                          {ach.isSecret && !unlocked ? "Secret Acquired Honour" : ach.title}
+                        </span>
                         <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-black bg-muted text-muted-foreground">
                           {ach.rarity}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {ach.isSecret && !unlocked ? "This prestigious feat is concealed until achieved." : ach.description}
+                        {ach.isSecret && !unlocked
+                          ? "This prestigious feat is concealed until achieved."
+                          : ach.description}
                       </p>
                     </div>
-                    {unlocked ? <CheckCircle2 className="size-4 text-warning shrink-0" /> : <Lock className="size-4 text-muted-foreground shrink-0" />}
+                    {unlocked ? (
+                      <CheckCircle2 className="size-4 text-warning shrink-0" />
+                    ) : (
+                      <Lock className="size-4 text-muted-foreground shrink-0" />
+                    )}
                   </div>
 
                   <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-xs">
                     <span className="text-[11px] font-semibold text-primary">Reward: {ach.rewardLabel}</span>
                     {unlocked && !claimed && clan && (
-                      <Button size="sm" variant="secondary" className="h-7 text-xs font-bold" onClick={() => handleClaim(ach.id, ach.rewardType, ach.rewardValue)}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 text-xs font-bold"
+                        onClick={() => handleClaim(ach.id, ach.rewardType, ach.rewardValue)}
+                      >
                         Claim Reward
                       </Button>
                     )}
@@ -762,7 +722,6 @@ function ClansPage() {
         </div>
       )}
 
-      {/* Tab: Leaderboard */}
       {activeTab === "leaderboard" && (
         <div className="space-y-3">
           <h3 className="text-sm font-bold flex items-center gap-2">
@@ -771,15 +730,22 @@ function ClansPage() {
 
           <div className="grid gap-2">
             {clans.map((c, i) => (
-              <div key={c.id} className="p-3 rounded-xl border border-border bg-card/60 flex items-center justify-between">
+              <div
+                key={c.id}
+                className="p-3 rounded-xl border border-border bg-card/60 flex items-center justify-between"
+              >
                 <div className="flex items-center gap-3">
                   <span className="font-black text-sm w-6 text-center text-muted-foreground">#{i + 1}</span>
-                  <div className="size-9 rounded-lg bg-muted flex items-center justify-center text-lg">{c.emblem}</div>
+                  <div className="size-9 rounded-lg bg-muted flex items-center justify-center text-lg">
+                    {c.emblem}
+                  </div>
                   <div>
                     <div className="text-xs font-bold">
                       {c.name} <span className="text-primary">[{c.tag}]</span>
                     </div>
-                    <div className="text-[10px] text-muted-foreground">Level {c.level} · {c.memberCount} members</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      Level {c.level} · {c.memberCount} members
+                    </div>
                   </div>
                 </div>
 
@@ -793,7 +759,6 @@ function ClansPage() {
         </div>
       )}
 
-      {/* Post Announcement Dialog */}
       <Dialog open={annOpen} onOpenChange={setAnnOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -826,7 +791,6 @@ function ClansPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Challenge Dialog */}
       <Dialog open={!!targetClan} onOpenChange={(o) => !o && setTargetClan(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
