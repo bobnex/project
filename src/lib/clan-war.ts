@@ -8,6 +8,27 @@ export type ClanWarFormat = "1v1" | "3v3" | "5v5";
 
 export const CLAN_WAR_SUBJECTS = ["general", "mathematics", "english"] as const;
 
+export interface ClanWarSettleResult {
+  challengeId: string;
+  winnerClanId: string | null;
+  challengerClanId: string;
+  challengerClanName: string;
+  challengerClanTag: string;
+  targetClanId: string;
+  targetClanName: string;
+  targetClanTag: string;
+  scoreA: number;
+  scoreB: number;
+  cpDeltaA: number;
+  cpDeltaB: number;
+  xpDeltaA: number;
+  xpDeltaB: number;
+  newCpA: number;
+  newCpB: number;
+  newLvlA: number;
+  newLvlB: number;
+}
+
 export function getClanWarQuestionCount(format: ClanWarFormat): number {
   if (format === "1v1") return 10;
   if (format === "3v3") return 25;
@@ -100,14 +121,17 @@ export async function startClanWarMatch({
   return room.id;
 }
 
-export async function settleClanWarMatch(db: Firestore, challengeId: string, match: Match) {
+export async function settleClanWarMatch(
+  db: Firestore,
+  challengeId: string,
+  match: Match
+): Promise<ClanWarSettleResult | null> {
   const challengeRef = doc(db, "clanBattles", challengeId);
 
-  await runTransaction(db, async (tx) => {
+  return await runTransaction(db, async (tx) => {
     const snap = await tx.get(challengeRef);
-    if (!snap.exists()) return;
+    if (!snap.exists()) return null;
     const war = snap.data();
-    if (war.status === "completed") return;
 
     const p1Uid = war.playerOneUid || match.playerIds[0];
     const p2Uid = war.playerTwoUid || match.playerIds[1];
@@ -121,69 +145,118 @@ export async function settleClanWarMatch(db: Firestore, challengeId: string, mat
       winnerClanId = war.targetClanId;
     }
 
-    const now = Date.now();
-    const scores: Record<string, number> = {
-      [war.challengerClanId]: score1,
-      [war.targetClanId]: score2,
-    };
+    const isWinA = winnerClanId === war.challengerClanId;
+    const isWinB = winnerClanId === war.targetClanId;
+    const isDraw = winnerClanId === null;
 
-    tx.update(challengeRef, {
-      status: "completed",
-      winnerClanId,
-      scores,
-      resolvedAt: now,
-    });
+    const cpDeltaA = isWinA ? 25 : isDraw ? 10 : 0;
+    const xpDeltaA = isWinA ? 100 : isDraw ? 50 : 25;
+
+    const cpDeltaB = isWinB ? 25 : isDraw ? 10 : 0;
+    const xpDeltaB = isWinB ? 100 : isDraw ? 50 : 25;
 
     const clanARef = doc(db, "clans", war.challengerClanId);
     const clanBRef = doc(db, "clans", war.targetClanId);
     const [clanASnap, clanBSnap] = await Promise.all([tx.get(clanARef), tx.get(clanBRef)]);
 
-    if (clanASnap.exists()) {
-      const cA = clanASnap.data();
-      const isWin = winnerClanId === war.challengerClanId;
-      const isDraw = winnerClanId === null;
-      const cpDelta = isWin ? 25 : isDraw ? 10 : 0;
-      const xpDelta = isWin ? 100 : isDraw ? 50 : 25;
-      const nextXp = (cA.xp ?? 0) + xpDelta;
-      const { level: nextLvl } = calculateClanLevel(nextXp);
+    const cA = clanASnap.exists() ? clanASnap.data() : {};
+    const cB = clanBSnap.exists() ? clanBSnap.data() : {};
 
-      tx.update(clanARef, {
-        competitivePoints: Math.max(0, (cA.competitivePoints ?? 0) + cpDelta),
-        totalBattlesWon: (cA.totalBattlesWon ?? 0) + (isWin ? 1 : 0),
-        totalBattlesLost: (cA.totalBattlesLost ?? 0) + (!isWin && !isDraw ? 1 : 0),
-        xp: nextXp,
-        level: Math.max(cA.level ?? 1, nextLvl),
+    const newCpA = Math.max(0, (cA.competitivePoints ?? 0) + cpDeltaA);
+    const nextXpA = (cA.xp ?? 0) + xpDeltaA;
+    const { level: nextLvlA } = calculateClanLevel(nextXpA);
+
+    const newCpB = Math.max(0, (cB.competitivePoints ?? 0) + cpDeltaB);
+    const nextXpB = (cB.xp ?? 0) + xpDeltaB;
+    const { level: nextLvlB } = calculateClanLevel(nextXpB);
+
+    if (war.status !== "completed") {
+      const now = Date.now();
+      const scores: Record<string, number> = {
+        [war.challengerClanId]: score1,
+        [war.targetClanId]: score2,
+      };
+
+      tx.update(challengeRef, {
+        status: "completed",
+        winnerClanId,
+        scores,
+        resolvedAt: now,
+      });
+
+      if (clanASnap.exists()) {
+        tx.update(clanARef, {
+          competitivePoints: newCpA,
+          totalBattlesWon: (cA.totalBattlesWon ?? 0) + (isWinA ? 1 : 0),
+          totalBattlesLost: (cA.totalBattlesLost ?? 0) + (!isWinA && !isDraw ? 1 : 0),
+          totalBattlesDrawn: (cA.totalBattlesDrawn ?? 0) + (isDraw ? 1 : 0),
+          xp: nextXpA,
+          level: Math.max(cA.level ?? 1, nextLvlA),
+        });
+      }
+
+      if (clanBSnap.exists()) {
+        tx.update(clanBRef, {
+          competitivePoints: newCpB,
+          totalBattlesWon: (cB.totalBattlesWon ?? 0) + (isWinB ? 1 : 0),
+          totalBattlesLost: (cB.totalBattlesLost ?? 0) + (!isWinB && !isDraw ? 1 : 0),
+          totalBattlesDrawn: (cB.totalBattlesDrawn ?? 0) + (isDraw ? 1 : 0),
+          xp: nextXpB,
+          level: Math.max(cB.level ?? 1, nextLvlB),
+        });
+      }
+
+      // Update duel participants' member contributions
+      if (p1Uid && war.challengerClanId) {
+        const memARef = doc(db, "clanMembers", `${war.challengerClanId}_${p1Uid}`);
+        tx.update(memARef, {
+          battlesPlayed: (war.challengerMember?.battlesPlayed ?? 0) + 1,
+          battlesWon: (war.challengerMember?.battlesWon ?? 0) + (isWinA ? 1 : 0),
+          contributionScore: (war.challengerMember?.contributionScore ?? 0) + cpDeltaA,
+        }).catch?.(() => {});
+      }
+
+      if (p2Uid && war.targetClanId) {
+        const memBRef = doc(db, "clanMembers", `${war.targetClanId}_${p2Uid}`);
+        tx.update(memBRef, {
+          battlesPlayed: (war.targetMember?.battlesPlayed ?? 0) + 1,
+          battlesWon: (war.targetMember?.battlesWon ?? 0) + (isWinB ? 1 : 0),
+          contributionScore: (war.targetMember?.contributionScore ?? 0) + cpDeltaB,
+        }).catch?.(() => {});
+      }
+
+      const actRef = doc(collection(db, "clanActivities"));
+      const desc = winnerClanId
+        ? `${winnerClanId === war.challengerClanId ? war.challengerClanName : war.targetClanName} won the Clan War (${score1} - ${score2})`
+        : `Clan War clash ended in an honorable draw (${score1} - ${score2})`;
+
+      tx.set(actRef, {
+        clanId: war.challengerClanId,
+        type: winnerClanId === war.challengerClanId ? "battle_won" : winnerClanId ? "battle_lost" : "battle_drawn",
+        description: desc,
+        timestamp: now,
       });
     }
 
-    if (clanBSnap.exists()) {
-      const cB = clanBSnap.data();
-      const isWin = winnerClanId === war.targetClanId;
-      const isDraw = winnerClanId === null;
-      const cpDelta = isWin ? 25 : isDraw ? 10 : 0;
-      const xpDelta = isWin ? 100 : isDraw ? 50 : 25;
-      const nextXp = (cB.xp ?? 0) + xpDelta;
-      const { level: nextLvl } = calculateClanLevel(nextXp);
-
-      tx.update(clanBRef, {
-        competitivePoints: Math.max(0, (cB.competitivePoints ?? 0) + cpDelta),
-        totalBattlesWon: (cB.totalBattlesWon ?? 0) + (isWin ? 1 : 0),
-        totalBattlesLost: (cB.totalBattlesLost ?? 0) + (!isWin && !isDraw ? 1 : 0),
-        xp: nextXp,
-        level: Math.max(cB.level ?? 1, nextLvl),
-      });
-    }
-
-    const actRef = doc(collection(db, "clanActivities"));
-    const desc = winnerClanId
-      ? `${winnerClanId === war.challengerClanId ? war.challengerClanName : war.targetClanName} won the Clan War (${score1} - ${score2})`
-      : `Clan War clash ended in an honorable draw (${score1} - ${score2})`;
-
-    tx.set(actRef, {
-      clanId: war.challengerClanId,
-      type: winnerClanId === war.challengerClanId ? "battle_won" : winnerClanId ? "battle_lost" : "battle_drawn",
-      description: desc,
-      timestamp: now,
-    });
+    return {
+      challengeId,
+      winnerClanId,
+      challengerClanId: war.challengerClanId,
+      challengerClanName: war.challengerClanName ?? "Challenger Clan",
+      challengerClanTag: war.challengerClanTag ?? "CLAN",
+      targetClanId: war.targetClanId,
+      targetClanName: war.targetClanName ?? "Opponent Clan",
+      targetClanTag: war.targetClanTag ?? "RIVAL",
+      scoreA: score1,
+      scoreB: score2,
+      cpDeltaA,
+      cpDeltaB,
+      xpDeltaA,
+      xpDeltaB,
+      newCpA,
+      newCpB,
+      newLvlA: Math.max(cA.level ?? 1, nextLvlA),
+      newLvlB: Math.max(cB.level ?? 1, nextLvlB),
+    };
   });
 }
