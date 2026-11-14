@@ -11,7 +11,7 @@ import { FullLoader } from "@/components/game/ui";
 import { VoiceChat } from "@/components/game/VoiceChat";
 import { DuoLobby, TEAM_META } from "@/components/game/DuoLobby";
 import { useApp } from "@/lib/app-context";
-import { settleClanWarMatch } from "@/lib/clan-war";
+import { settleClanWarMatch, type ClanWarSettleResult } from "@/lib/clan-war";
 import { applyFixtureResult, maybeAdvance } from "@/lib/tournament-engine";
 import { RankBadge } from "@/components/game/RankBadge";
 import { useRankedConfig } from "@/lib/ranked-store";
@@ -395,7 +395,12 @@ function Results({ m, uid }: { m: Match; uid: string }) {
   const { fb, profile } = useApp();
   const rankedCfg = useRankedConfig(fb?.db);
   const [reward, setReward] = useState<MatchRewards | null>(null);
+  const [clanWarSettle, setClanWarSettle] = useState<ClanWarSettleResult | null>(null);
   const applied = useRef(false);
+
+  const clanWarId = (m as Match & { clanWarId?: string }).clanWarId;
+  const isClanWar = Boolean(clanWarId);
+
   useEffect(() => {
     if (applied.current || !fb) return;
     applied.current = true;
@@ -408,15 +413,20 @@ function Results({ m, uid }: { m: Match; uid: string }) {
       const tid = m.tournamentId;
       applyFixtureResult(fb.db, m.fixtureId).then(() => maybeAdvance(fb.db, tid)).catch(() => {});
     }
-    const clanWarId = (m as Match & { clanWarId?: string }).clanWarId;
-    if (clanWarId) settleClanWarMatch(fb.db, clanWarId, m).catch(() => {});
-  }, [fb, m.id, uid]);
+    if (clanWarId) {
+      settleClanWarMatch(fb.db, clanWarId, m)
+        .then((res) => { if (res) setClanWarSettle(res); })
+        .catch(() => {});
+    }
+  }, [fb, m.id, uid, clanWarId]);
 
   const result = resultFor(m, uid);
   useEffect(() => { play(result === "win" ? "win" : result === "draw" ? "draw" : "lose"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const order = useMemo(() => standings(m), [m]);
   const place = order.indexOf(uid) + 1;
-  const title = result === "win" ? "Victory!" : result === "draw" ? "Draw" : "Defeat";
+  const title = isClanWar
+    ? (result === "win" ? "Clan War Victory!" : result === "draw" ? "Honorable Draw!" : "Clan War Defeat")
+    : (result === "win" ? "Victory!" : result === "draw" ? "Draw" : "Defeat");
   const Icon = result === "win" ? Trophy : result === "draw" ? Medal : Flag;
   const [seed, setSeed] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -425,6 +435,18 @@ function Results({ m, uid }: { m: Match; uid: string }) {
   useEffect(() => {
     if (canvasRef.current) renderBattleCardPreview(canvasRef.current, card);
   }, [card]);
+
+  // Determine user's clan delta when in a Clan War
+  const isChallengerClan = clanWarSettle ? clanWarSettle.challengerClanId === profile?.clanId : true;
+  const myClanCpDelta = clanWarSettle
+    ? (isChallengerClan ? clanWarSettle.cpDeltaA : clanWarSettle.cpDeltaB)
+    : (result === "win" ? 25 : result === "draw" ? 10 : 0);
+  const myClanXpDelta = clanWarSettle
+    ? (isChallengerClan ? clanWarSettle.xpDeltaA : clanWarSettle.xpDeltaB)
+    : (result === "win" ? 100 : result === "draw" ? 50 : 25);
+  const myClanTotalCp = clanWarSettle
+    ? (isChallengerClan ? clanWarSettle.newCpA : clanWarSettle.newCpB)
+    : null;
 
   function downloadCard() {
     const canvas = canvasRef.current;
@@ -469,22 +491,56 @@ function Results({ m, uid }: { m: Match; uid: string }) {
         <div className={cn("animate-pop mx-auto grid size-20 place-items-center rounded-3xl", result === "win" ? "bg-gradient-primary text-primary-foreground shadow-glow" : "bg-muted")}>
           <Icon className="size-10" />
         </div>
-        <h2 className="mt-4 text-4xl font-extrabold">{title}</h2>
-        <p className="text-muted-foreground mt-1">
-          {m.mode === "rush" ? `You placed #${place} of ${m.playerIds.length}` : m.mode === "duo" ? `${TEAM_META.A.name} ${teamScore(m, "A")} – ${teamScore(m, "B")} ${TEAM_META.B.name}` : `Final score: ${m.players[uid].score}`}
+        <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">{title}</h2>
+        <p className="text-muted-foreground mt-1 text-sm sm:text-base">
+          {isClanWar
+            ? `Final Duel Score: ${m.players[uid]?.score ?? 0} pts`
+            : m.mode === "rush" ? `You placed #${place} of ${m.playerIds.length}` : m.mode === "duo" ? `${TEAM_META.A.name} ${teamScore(m, "A")} – ${teamScore(m, "B")} ${TEAM_META.B.name}` : `Final score: ${m.players[uid]?.score ?? 0}`}
         </p>
-        {reward && (
-          <div className="mt-5 grid grid-cols-3 gap-2">
-            <Reward icon={Sparkles} label="XP" value={`+${reward.xpGained}`} />
-            <Reward icon={Coins} label="Coins" value={`+${reward.coins}`} />
-            {reward.ranked ? (
-              <Reward icon={TrendingUp} label={reward.ranked.inPlacement ? "Placement" : "RP"} value={reward.ranked.inPlacement ? `${reward.ranked.patch.placementPlayed ?? 0}/${rankedCfg.placementMatches}` : `${reward.ranked.delta >= 0 ? "+" : ""}${reward.ranked.delta}`} />
-            ) : (
-              <Reward icon={TrendingUp} label="Rating" value={`${reward.delta >= 0 ? "+" : ""}${reward.delta}`} />
+
+        {/* Clan War points display */}
+        {isClanWar ? (
+          <div className="mt-5 space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <Reward icon={Shield} label="Clan Points" value={`+${myClanCpDelta} CP`} />
+              <Reward icon={Sparkles} label="Clan XP" value={`+${myClanXpDelta} XP`} />
+              <Reward icon={Trophy} label="Clan Total" value={myClanTotalCp !== null ? `${myClanTotalCp} CP` : "Updated"} />
+            </div>
+
+            {clanWarSettle && (
+              <div className="bg-muted/80 rounded-2xl p-4 text-left border border-border/60">
+                <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Clan War Scoreboard</div>
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className={cn("p-2.5 rounded-xl border", clanWarSettle.winnerClanId === clanWarSettle.challengerClanId ? "border-warning/50 bg-warning/10" : "border-border/60 bg-card/60")}>
+                    <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.challengerClanTag}]</div>
+                    <div className="text-xs font-black truncate">{clanWarSettle.challengerClanName}</div>
+                    <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreA}</div>
+                  </div>
+                  <div className={cn("p-2.5 rounded-xl border", clanWarSettle.winnerClanId === clanWarSettle.targetClanId ? "border-warning/50 bg-warning/10" : "border-border/60 bg-card/60")}>
+                    <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.targetClanTag}]</div>
+                    <div className="text-xs font-black truncate">{clanWarSettle.targetClanName}</div>
+                    <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreB}</div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
+        ) : (
+          /* Normal individual battle rewards */
+          reward && (
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              <Reward icon={Sparkles} label="XP" value={`+${reward.xpGained}`} />
+              <Reward icon={Coins} label="Coins" value={`+${reward.coins}`} />
+              {reward.ranked ? (
+                <Reward icon={TrendingUp} label={reward.ranked.inPlacement ? "Placement" : "RP"} value={reward.ranked.inPlacement ? `${reward.ranked.patch.placementPlayed ?? 0}/${rankedCfg.placementMatches}` : `${reward.ranked.delta >= 0 ? "+" : ""}${reward.ranked.delta}`} />
+              ) : (
+                <Reward icon={TrendingUp} label="Rating" value={`${reward.delta >= 0 ? "+" : ""}${reward.delta}`} />
+              )}
+            </div>
+          )
         )}
-        {reward?.ranked && (
+
+        {!isClanWar && reward?.ranked && (
           <div className="bg-muted mt-3 rounded-2xl p-3 text-left">
             {reward.ranked.placementJustFinished && <div className="text-primary mb-1 text-sm font-extrabold">Placement complete — you start at {reward.ranked.rankAfter}!</div>}
             {reward.ranked.streakBonus > 0 && <div className="text-warning mb-1 text-sm font-bold">Win streak bonus +{reward.ranked.streakBonus} RP</div>}
@@ -544,9 +600,27 @@ function Results({ m, uid }: { m: Match; uid: string }) {
         })}
       </div>
 
+      {/* Navigation buttons: Clan War direct shortcuts vs General Battle shortcuts */}
       <div className="grid grid-cols-2 gap-3">
-        <Button asChild variant="outline" size="lg"><Link to="/home"><Home /> Home</Link></Button>
-        <Button asChild variant="hero" size="lg"><Link to="/battle"><Swords /> Play again</Link></Button>
+        {isClanWar ? (
+          <>
+            <Button asChild variant="outline" size="lg">
+              <Link to={`/clan-war/${clanWarId}`}>
+                <Shield className="mr-2 size-4" /> War Room
+              </Link>
+            </Button>
+            <Button asChild variant="hero" size="lg">
+              <Link to="/clans">
+                <Users className="mr-2 size-4" /> Clan HQ
+              </Link>
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button asChild variant="outline" size="lg"><Link to="/home"><Home /> Home</Link></Button>
+            <Button asChild variant="hero" size="lg"><Link to="/battle"><Swords /> Play again</Link></Button>
+          </>
+        )}
       </div>
     </div>
   );
