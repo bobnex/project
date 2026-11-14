@@ -1,11 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
-import {
-  Check, Coins, Copy, Crown, Flag, Heart, HeartCrack, Home, Loader2, LogOut, Medal, Play, Shield, Skull, Sparkles, Swords, Timer, TrendingUp, Trophy, Users, Wifi, X, Zap,
-} from "lucide-react";
+import { Check, Coins, Flag, Medal, Sparkles, TrendingUp, Trophy, Volume2, VolumeX, Shield, Swords } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { PlayerAvatar } from "@/components/game/Avatar";
 import { FullLoader } from "@/components/game/ui";
 import { VoiceChat } from "@/components/game/VoiceChat";
@@ -17,56 +16,56 @@ import { RankBadge } from "@/components/game/RankBadge";
 import { useRankedConfig } from "@/lib/ranked-store";
 import { applyResults, rememberPendingSettle, type MatchRewards, forfeit, hostStart, leaveLobby, loadQuestions, submitAnswer, tick, type Question } from "@/lib/engine";
 import { RUSH_MAX_WRONG, alivePlayers, questionMs, resultFor, standings, teamOf, teamScore, type Match, type Team } from "@/lib/game-rules";
+import { play, setSfxGloballyEnabled } from "@/lib/sfx";
+import { buildBattleCardData, buildCardSummaryText, getBattleCardFileName, renderBattleCardPreview } from "@/lib/battle-card";
 import { cn } from "@/lib/utils";
-import { pageMeta } from "@/lib/meta";
-import { voiceAvailable } from "@/lib/voice-rules";
-import { buildBattleCardData, buildCardSummaryText, getBattleCardFileName, renderBattleCardPreview } from "@/lib/shareable-battle-card";
-import { play } from "@/lib/sfx";
+import { useClanMembership } from "@/lib/clans-store";
 
 export const Route = createFileRoute("/_player/match/$matchId")({
-  head: () => pageMeta("Live battle", "A live Favoje Battle match."),
-  component: MatchPage,
+  head: () => ({
+    meta: [
+      { title: "Live Battle • Juvora" },
+      { name: "description", content: "Compete live in head-to-head quiz battles, Duo team clashes, and high-stakes Rush mode on Juvora." },
+      { property: "og:title", content: "Live Battle • Juvora" },
+      { property: "og:description", content: "Compete live in head-to-head quiz battles on Juvora." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
+  component: MatchScreen,
 });
 
-function useNow(ms = 200) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(t);
-  }, [ms]);
-  return now;
-}
-
-function MatchPage() {
+function MatchScreen() {
   const { matchId } = Route.useParams();
   const { fb, user, settings } = useApp();
   const navigate = useNavigate();
   const [m, setM] = useState<Match | null>(null);
   const [missing, setMissing] = useState(false);
-  const [qs, setQs] = useState<Record<string, Question>>({});
-  const now = useNow();
+  const [qs, setQs] = useState<Question[]>([]);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!fb) return;
-    return onSnapshot(
-      doc(fb.db, "matches", matchId),
-      (s) => (s.exists() ? setM({ id: s.id, ...(s.data() as Omit<Match, "id">) }) : setMissing(true)),
-      () => setMissing(true),
-    );
+    const unsub = onSnapshot(doc(fb.db, "matches", matchId), (s) => {
+      if (!s.exists()) { setMissing(true); return; }
+      setM({ id: s.id, ...(s.data() as Omit<Match, "id">) });
+    });
+    return () => unsub();
   }, [fb, matchId]);
 
-  const qKey = m?.questionIds.join(",");
   useEffect(() => {
-    if (fb && m && m.playerIds.includes(user?.uid ?? "")) loadQuestions(fb.db, m.questionIds, m.id).then(setQs).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fb, qKey, m?.playerIds.length]);
+    if (!fb || !m?.questionIds?.length || qs.length === m.questionIds.length) return;
+    loadQuestions(fb.db, m.questionIds).then(setQs).catch(() => {});
+  }, [fb, m?.questionIds, qs.length]);
 
-  // Any participant can move the match forward when its timers run out.
-  const ticking = useRef(false);
   useEffect(() => {
-    if (!fb || !m || !user || !m.playerIds.includes(user.uid) || ticking.current) return;
-    ticking.current = true;
-    tick(fb.db, m.id, m).finally(() => (ticking.current = false));
+    if (!fb || !m || !user) return;
+    if (m.status !== "waiting" && m.status !== "completed") tick(fb.db, m.id, m);
   }, [fb, m, now, user]);
 
   if (missing) return <div className="p-10 text-center">This battle doesn't exist. <Link to="/battle" className="text-primary font-semibold">Back to arena</Link></div>;
@@ -89,292 +88,250 @@ function MatchPage() {
   );
 }
 
+function voiceAvailable(mode: Match["mode"], status: Match["status"]) {
+  if (status !== "waiting" && status !== "countdown" && status !== "active") return false;
+  return mode === "classic" || mode === "duo";
+}
+
 /* ---------------- Lobby ---------------- */
 function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; onLeave: () => void }) {
   const { fb } = useApp();
-  const [busy, setBusy] = useState(false);
   const isHost = m.hostId === uid;
-  const left = m.lobbyEndsAt ? Math.max(0, Math.ceil((m.lobbyEndsAt - now) / 1000)) : null;
+  const left = Math.max(0, Math.ceil((m.lobbyEndsAt - now) / 1000));
+  const canStart = isHost && m.playerIds.length >= 2;
+
+  const start = () => { if (fb) hostStart(fb.db, m.id, uid); };
+
   return (
-    <div className="mx-auto max-w-lg space-y-5">
-      <div className="hero-card p-6 text-center">
-        <div className="text-muted-foreground text-xs font-bold tracking-widest uppercase">
-          {m.mode === "rush" ? "50 Players Rush" : "Classic 1v1"} lobby
-        </div>
-        {m.code ? (
-          <>
-            <div className="tabular font-display mt-3 text-5xl font-extrabold tracking-[0.25em]">{m.code}</div>
-            <Button variant="glass" size="sm" className="mt-3" onClick={() => { navigator.clipboard.writeText(m.code!); toast.success("Code copied"); }}>
-              <Copy /> Copy code
-            </Button>
-            <p className="text-muted-foreground mt-3 text-sm">Share this code so friends can join from the Battle page.</p>
-          </>
-        ) : left !== null ? (
-          <div className="mt-3">
-            <div className="tabular font-display text-5xl font-extrabold">{left}s</div>
-            <p className="text-muted-foreground mt-1 text-sm">Rush starts automatically when the timer ends and at least 2 players are in.</p>
-          </div>
-        ) : (
-          <div className="mt-3 flex flex-col items-center gap-2">
-            <Loader2 className="text-primary size-10 animate-spin" />
-            <p className="text-muted-foreground text-sm">Waiting for your opponent — the battle starts as soon as they join.</p>
-          </div>
-        )}
+    <div className="surface-card mx-auto max-w-lg space-y-6 p-6 text-center">
+      <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+        <Sparkles className="size-3.5" /> {m.mode === "rush" ? "Rush lobby" : "Battle lobby"}
       </div>
-
-      <div className="surface-card p-4">
-        <div className="mb-3 flex items-center justify-between text-sm font-bold">
-          <span className="flex items-center gap-2"><Users className="text-primary size-4" /> Players</span>
-          <span className="tabular">{m.playerIds.length}/{m.maxPlayers}</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {m.playerIds.map((id) => (
-            <div key={id} className="bg-muted flex items-center gap-2 rounded-xl p-2">
-              <PlayerAvatar name={m.players[id].name} size={28} />
-              <span className="truncate text-sm font-semibold">{m.players[id].name}</span>
-              {id === m.hostId && <Crown className="text-warning ml-auto size-3.5 shrink-0" />}
+      <h1 className="text-2xl font-black sm:text-3xl">Waiting for challengers</h1>
+      {m.mode === "rush" && (
+        <p className="text-muted-foreground text-sm">
+          Match starts automatically in <span className="text-foreground font-bold">{left}s</span>, or when {m.maxPlayers} players join.
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {m.playerIds.map((id) => {
+          const p = m.players[id];
+          return (
+            <div key={id} className="surface-card flex flex-col items-center gap-2 p-3">
+              <PlayerAvatar name={p.name} size={48} />
+              <span className="w-full truncate text-xs font-semibold">{p.name}</span>
+              {id === m.hostId && <span className="bg-primary/15 text-primary rounded px-1.5 py-0.5 text-[10px] font-bold">HOST</span>}
             </div>
-          ))}
-          {m.mode === "classic" && m.playerIds.length < 2 && (
-            <div className="text-muted-foreground flex items-center gap-2 rounded-xl border border-dashed p-2 text-sm">
-              <Loader2 className="size-4 animate-spin" /> Waiting…
-            </div>
-          )}
-        </div>
+          );
+        })}
       </div>
-
-      <div className="flex gap-3">
-        <Button variant="outline" size="lg" className="flex-1" onClick={onLeave}><LogOut /> Leave</Button>
-        {isHost && m.code && (
-          <Button variant="hero" size="lg" className="flex-1" disabled={busy || m.playerIds.length < 2}
-            onClick={async () => { setBusy(true); try { await hostStart(fb!.db, m.id, uid); } catch (e) { toast.error((e as Error).message); } setBusy(false); }}>
-            <Play /> Start battle
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+        {canStart && (
+          <Button size="lg" className="w-full sm:w-auto" onClick={start}>
+            Start battle ({m.playerIds.length} ready)
           </Button>
         )}
+        <Button variant="outline" size="lg" className="w-full sm:w-auto" onClick={onLeave}>
+          Leave lobby
+        </Button>
       </div>
     </div>
   );
 }
 
-/* ---------------- Countdown / versus ---------------- */
-function Countdown({ m, uid, now }: { m: Match; uid: string; now: number }) {
-  const n = Math.max(1, Math.ceil((m.countdownEndsAt - now) / 1000));
-  useEffect(() => { play("countdown"); }, [n]);
-  useEffect(() => () => play("go"), []);
-  const opp = m.playerIds.find((id) => id !== uid);
+/* ---------------- Countdown ---------------- */
+function Countdown({ m, now }: { m: Match; now: number; uid: string }) {
+  const left = Math.max(0, Math.ceil((m.countdownEndsAt - now) / 1000));
+  useEffect(() => { play("tick"); }, [left]);
   return (
-    <div className="flex min-h-[80vh] flex-col items-center justify-center gap-10">
-      {m.mode === "duo" ? (
-        <div className="flex w-full max-w-lg items-center justify-between">
-          {(["A", "B"] as Team[]).map((t, i) => (
-            <div key={t} className={cn("flex flex-col items-center gap-3", i === 0 ? "animate-vs-left order-1" : "animate-vs-right order-3")}>
-              <div className="flex -space-x-4">
-                {teamOf(m, t).map((id) => <PlayerAvatar key={id} name={m.players[id].name} size={68} ring />)}
-              </div>
-              <span className={cn("font-extrabold", TEAM_META[t].text)}>{TEAM_META[t].name}</span>
-            </div>
-          ))}
-          <div className="text-primary font-display animate-pop order-2 text-5xl font-extrabold italic">VS</div>
-        </div>
-      ) : m.mode === "classic" && opp ? (
-        <div className="flex w-full max-w-md items-center justify-between">
-          <div className="animate-vs-left flex flex-col items-center gap-2">
-            <PlayerAvatar name={m.players[uid].name} size={88} ring />
-            <span className="font-bold">{m.players[uid].name}</span>
-          </div>
-          <div className="text-primary font-display animate-pop text-5xl font-extrabold italic">VS</div>
-          <div className="animate-vs-right flex flex-col items-center gap-2">
-            <PlayerAvatar name={m.players[opp].name} size={88} ring />
-            <span className="font-bold">{m.players[opp].name}</span>
-          </div>
-        </div>
-      ) : (
-        <div className="animate-pop flex flex-col items-center gap-2">
-          <Zap className="text-accent size-14" />
-          <div className="text-2xl font-extrabold">{m.playerIds.length} players enter the Rush</div>
-        </div>
-      )}
-      <div key={n} className="font-display text-primary animate-pop text-8xl font-extrabold">{n}</div>
-      <p className="text-muted-foreground text-sm">Get ready…</p>
+    <div className="mx-auto flex max-w-sm flex-col items-center justify-center gap-4 py-20 text-center">
+      <span className="text-muted-foreground text-xs font-bold uppercase tracking-widest">Get ready</span>
+      <div className="text-primary font-black tracking-tight" style={{ fontSize: "6rem", lineHeight: 1 }}>
+        {left || "GO!"}
+      </div>
+      <p className="text-muted-foreground text-sm">First question is loading…</p>
     </div>
   );
 }
 
-/* ---------------- Live question ---------------- */
-function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Record<string, Question> }) {
-  const { fb } = useApp();
-  const navigate = useNavigate();
-  const q = qs[m.questionIds[m.currentIndex]];
-  const me = m.players[uid];
-  const idx = String(m.currentIndex);
-  const mine = me.answers?.[idx];
-  const [pending, setPending] = useState<number | null>(null);
-  useEffect(() => setPending(null), [m.currentIndex]);
+/* ---------------- Live ---------------- */
+function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Question[] }) {
+  const { fb, settings, updateSettings } = useApp();
+  const q = qs[m.currentIndex];
+  const p = m.players[uid];
+  const myAnswer = p?.answers?.[String(m.currentIndex)];
+  const ms = questionMs(m.mode, m.secondsPerQuestion);
+  const remaining = m.phase === "question" ? Math.max(0, m.deadline - now) : Math.max(0, m.revealEndsAt - now);
+  const progress = m.phase === "question" ? (remaining / ms) * 100 : 0;
+  const isDuo = m.mode === "duo";
 
-  const msLeft = Math.max(0, m.deadline - now);
-  const reveal = m.phase === "reveal";
-  const alive = alivePlayers(m).length;
-  const opp = m.mode === "classic" ? m.playerIds.find((id) => id !== uid) : undefined;
-  const secLeft = Math.ceil(msLeft / 1000);
-  useEffect(() => {
-    if (!reveal && !mine && secLeft > 0 && secLeft <= 5) play("tick");
-  }, [secLeft]); // eslint-disable-line react-hooks/exhaustive-deps
-  const revealKey = reveal ? `${m.currentIndex}` : "";
-  useEffect(() => {
-    if (revealKey && mine) play(mine.correct ? "correct" : "wrong");
-  }, [revealKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function choose(i: number) {
-    if (!q || mine || pending !== null || reveal || me.eliminated) return;
-    setPending(i);
-    play("tap");
+  const onChoose = async (idx: number) => {
+    if (!fb || !q || m.phase !== "question" || myAnswer) return;
     try {
-      await submitAnswer(fb!.db, m.id, uid, q, i);
-    } catch (e) {
-      setPending(null);
-      toast.error((e as Error).message);
+      play("click");
+      await submitAnswer(fb.db, m.id, uid, q, idx);
+    } catch {
+      /* deadline race */
     }
-  }
+  };
 
-  async function quit() {
-    const msg = m.mode === "classic"
-      ? "Surrender this battle? It counts as a loss."
-      : m.mode === "duo"
-        ? "Surrender this battle? Your whole team loses."
-        : "Leave the Rush? You'll be eliminated.";
-    if (!confirm(msg)) return;
-    await forfeit(fb!.db, m.id, uid).catch(() => {});
-    if (m.mode === "rush") { rememberPendingSettle(m.id); navigate({ to: "/battle" }); }
-  }
-
-  const chosen = mine?.choice ?? pending;
+  const onForfeit = async () => {
+    if (!fb) return;
+    if (confirm("Forfeit this battle? You'll receive a loss.")) {
+      await forfeit(fb.db, m.id, uid);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="bg-muted flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold">
-          {m.mode === "rush" ? <Zap className="text-accent size-3.5" /> : <Swords className="text-primary size-3.5" />}
-          {m.mode === "rush" ? "RUSH" : m.mode === "duo" ? "2V2" : "1V1"}
+      {/* Header bar */}
+      <div className="surface-card flex items-center justify-between p-3 px-4">
+        <div className="flex items-center gap-2">
+          <span className="text-primary text-xs font-bold uppercase tracking-wider">
+            Q{m.currentIndex + 1} of {m.questionIds.length}
+          </span>
+          <span className="text-muted-foreground text-xs">•</span>
+          <span className="text-muted-foreground text-xs font-semibold capitalize">{m.mode}</span>
         </div>
-        <div className="tabular text-sm font-bold">Q {m.currentIndex + 1}/{m.questionIds.length}</div>
-        <div className="text-success ml-auto flex items-center gap-1 text-xs"><Wifi className="size-3.5" /> Live</div>
-        <Button size="sm" variant="ghost" onClick={quit} aria-label="Surrender"><Flag /></Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => {
+              const next = !settings.sfxEnabled;
+              setSfxGloballyEnabled(next);
+              updateSettings({ sfxEnabled: next });
+            }}
+            title={settings.sfxEnabled ? "Mute sound" : "Unmute sound"}
+          >
+            {settings.sfxEnabled ? <Volume2 className="size-4" /> : <VolumeX className="text-muted-foreground size-4" />}
+          </Button>
+          <Button variant="ghost" size="sm" className="text-destructive h-8 text-xs font-semibold" onClick={onForfeit}>
+            <Flag className="mr-1 size-3.5" /> Forfeit
+          </Button>
+        </div>
       </div>
 
-      {/* Timer */}
-      <div className="flex items-center gap-3">
-        <Timer className={cn("size-5", msLeft < 5000 && !reveal ? "text-destructive" : "text-primary")} />
-        <div className="bg-muted h-2.5 flex-1 overflow-hidden rounded-full">
-          <div
-            className={cn("h-full rounded-full transition-[width] duration-200 ease-linear", msLeft < 5000 ? "bg-destructive" : "bg-gradient-primary")}
-            style={{ width: `${reveal ? 0 : (msLeft / questionMs(m.mode)) * 100}%` }}
-          />
-        </div>
-        <span className="tabular w-8 text-right text-sm font-bold">{reveal ? "–" : Math.ceil(msLeft / 1000)}</span>
-      </div>
+      {/* Timer line */}
+      <Progress value={progress} className="h-1.5" />
 
-      {/* Players */}
-      {m.mode === "duo" ? (
-        <DuoBoard m={m} uid={uid} idx={idx} />
-      ) : opp ? (
-        <div className="grid grid-cols-2 gap-3">
-          <ScoreCard name={me.name} score={me.score} answered={!!mine} you />
-          <ScoreCard name={m.players[opp].name} score={m.players[opp].score} answered={!!m.players[opp].answers?.[idx]} />
+      {/* Duo team header */}
+      {isDuo && <DuoTeamScoreboard m={m} uid={uid} />}
+
+      {/* Scoreboard strip */}
+      {!isDuo && <ScoreStrip m={m} uid={uid} />}
+
+      {/* Question card */}
+      <div className="surface-card space-y-5 p-5 sm:p-8">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">
+            {q?.course ?? "General"}
+          </span>
+          <span className="tabular text-primary text-xs font-extrabold">
+            {Math.ceil(remaining / 1000)}s
+          </span>
         </div>
-      ) : (
-        <div className="surface-card flex items-center gap-4 p-3">
-          <div className="flex items-center gap-2"><Users className="text-accent size-5" /><span className="tabular text-lg font-extrabold">{alive}</span><span className="text-muted-foreground text-xs">alive</span></div>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: RUSH_MAX_WRONG }).map((_, i) =>
-              i < RUSH_MAX_WRONG - me.wrong ? <Heart key={i} className="text-destructive fill-destructive size-5" /> : <HeartCrack key={i} className="text-muted-foreground size-5" />,
+        <h2 className="text-lg font-bold leading-snug sm:text-2xl">{q?.text ?? "Loading question…"}</h2>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          {q?.options.map((opt, i) => {
+            const picked = myAnswer?.choice === i;
+            const reveal = m.phase === "reveal";
+            const isCorrect = reveal && q.correctIndex === i;
+            const isWrong = reveal && picked && !isCorrect;
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={Boolean(myAnswer) || m.phase !== "question"}
+                onClick={() => onChoose(i)}
+                className={cn(
+                  "flex items-center gap-3 rounded-2xl border p-4 text-left font-semibold transition-all select-none",
+                  !picked && !reveal && "border-border/60 hover:border-primary/60 hover:bg-primary/5 active:scale-[0.99]",
+                  picked && !reveal && "border-primary bg-primary/10 text-primary shadow-sm",
+                  isCorrect && "border-success bg-success/15 text-success",
+                  isWrong && "border-destructive bg-destructive/15 text-destructive",
+                  m.phase === "question" && !myAnswer && "cursor-pointer"
+                )}
+              >
+                <span className={cn(
+                  "grid size-7 shrink-0 place-items-center rounded-lg text-xs font-black",
+                  picked ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                )}>
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <span className="flex-1 text-sm sm:text-base">{opt}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreStrip({ m, uid }: { m: Match; uid: string }) {
+  const ids = m.playerIds;
+  return (
+    <div className="surface-card flex items-center justify-around gap-2 p-3">
+      {ids.map((id) => {
+        const p = m.players[id];
+        const isMe = id === uid;
+        const ans = p.answers?.[String(m.currentIndex)];
+        return (
+          <div key={id} className={cn("flex flex-1 items-center gap-2 rounded-xl p-1.5 px-2.5", isMe && "bg-primary/10")}>
+            <PlayerAvatar name={p.name} size={32} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-bold">{isMe ? "You" : p.name}</div>
+              <div className="text-muted-foreground text-[11px]">
+                {m.mode === "rush" ? (
+                  <span className="text-destructive font-semibold">
+                    {"✕".repeat(p.wrong)}
+                    <span className="opacity-30">{"✕".repeat(Math.max(0, RUSH_MAX_WRONG - p.wrong))}</span>
+                  </span>
+                ) : (
+                  <span className="tabular font-extrabold text-foreground">{p.score} pts</span>
+                )}
+              </div>
+            </div>
+            {ans && (
+              <span className={cn("size-2 rounded-full", m.phase === "reveal" ? (ans.correct ? "bg-success" : "bg-destructive") : "bg-primary")} />
             )}
           </div>
-          <div className="ml-auto text-right"><div className="tabular font-extrabold">{me.score}</div><div className="text-muted-foreground text-xs">points</div></div>
-        </div>
-      )}
-
-      {me.eliminated ? (
-        <div className="surface-card flex flex-col items-center gap-3 p-8 text-center">
-          <Skull className="text-destructive size-12" />
-          <div className="text-xl font-extrabold">You've been eliminated</div>
-          <p className="text-muted-foreground text-sm">You can keep watching until the Rush ends. {alive} players remain.</p>
-        </div>
-      ) : !q ? (
-        <FullLoader label="Loading question" />
-      ) : (
-        <div key={m.currentIndex} className="animate-page space-y-4">
-          <div className="surface-card p-5">
-            <div className="text-primary mb-2 text-xs font-bold tracking-wide uppercase">{q.subject}{q.topic ? ` · ${q.topic}` : ""}</div>
-            <p className="text-lg leading-relaxed font-semibold sm:text-xl">{q.text}</p>
-          </div>
-          <div className="grid gap-3">
-            {q.options.map((opt, i) => {
-              const isChosen = chosen === i;
-              const isCorrect = reveal && i === q.correctIndex;
-              const isWrong = reveal && isChosen && i !== q.correctIndex;
-              return (
-                <button
-                  key={i}
-                  onClick={() => choose(i)}
-                  disabled={!!mine || pending !== null || reveal}
-                  className={cn(
-                    "pressable surface-card flex min-h-14 items-center gap-3 p-4 text-left font-semibold transition-colors",
-                    !mine && !reveal && "hover:border-primary",
-                    isChosen && !reveal && "border-primary bg-primary/10",
-                    isCorrect && "border-success bg-success/15",
-                    isWrong && "border-destructive bg-destructive/15",
-                  )}
-                >
-                  <span className={cn("bg-muted grid size-8 shrink-0 place-items-center rounded-lg text-sm font-bold", isChosen && "bg-primary text-primary-foreground", isCorrect && "bg-success text-success-foreground", isWrong && "bg-destructive text-destructive-foreground")}>
-                    {isCorrect ? <Check className="size-4" /> : isWrong ? <X className="size-4" /> : "ABCD"[i]}
-                  </span>
-                  <span className="flex-1">{opt}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="text-muted-foreground h-5 text-center text-sm">
-            {reveal
-              ? mine?.correct ? <span className="text-success font-bold">Correct! +{mine.points}{mine.sync && " · Sync bonus!"}</span> : <span className="text-destructive font-bold">{mine ? "Wrong — " + mine.points + " points" : "Answer review"}</span>
-              : mine ? "Answer locked — waiting for others…" : pending !== null ? "Submitting…" : "Tap your answer"}
-          </div>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
 
-function ScoreCard({ name, score, answered, you }: { name: string; score: number; answered: boolean; you?: boolean }) {
+function DuoTeamScoreboard({ m, uid }: { m: Match; uid: string }) {
+  const myTeam = teamOf(m, uid);
+  const scoreA = teamScore(m, "A");
+  const scoreB = teamScore(m, "B");
   return (
-    <div className={cn("surface-card flex items-center gap-2 p-3", you && "border-primary/50")}>
-      <PlayerAvatar name={name} size={34} />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-xs font-semibold">{you ? "You" : name}</div>
-        <div className="tabular text-lg font-extrabold">{score}</div>
+    <div className="surface-card space-y-3 p-4">
+      <div className="grid grid-cols-2 gap-3">
+        {(["A", "B"] as Team[]).map((t) => {
+          const meta = TEAM_META[t];
+          const isMine = t === myTeam;
+          const score = t === "A" ? scoreA : scoreB;
+          return (
+            <div key={t} className={cn("relative overflow-hidden rounded-2xl border p-3", isMine ? "border-primary/60 bg-primary/5" : "border-border/60 bg-muted/40")}>
+              <div className="flex items-center justify-between">
+                <span className={cn("rounded-md px-2 py-0.5 text-xs font-black", meta.badge)}>
+                  {meta.name}
+                </span>
+                {isMine && <span className="text-primary text-[10px] font-extrabold uppercase tracking-wider">Your team</span>}
+              </div>
+              <div className="tabular text-2xl font-black mt-2">{score} pts</div>
+            </div>
+          );
+        })}
       </div>
-      {answered && <Check className="text-success size-4" />}
-    </div>
-  );
-}
-
-function DuoBoard({ m, uid, idx }: { m: Match; uid: string; idx: string }) {
-  const myTeam = m.players[uid].team;
-  const a = teamScore(m, "A"), b = teamScore(m, "B");
-  const share = a + b === 0 ? 50 : (a / (a + b)) * 100;
-  return (
-    <div className="surface-card space-y-3 p-3">
-      <div className="flex items-center justify-between text-sm font-extrabold">
-        <span className={TEAM_META.A.text}>{TEAM_META.A.name}{myTeam === "A" && " (you)"} · <span className="tabular">{a}</span></span>
-        <span className={TEAM_META.B.text}><span className="tabular">{b}</span> · {TEAM_META.B.name}{myTeam === "B" && " (you)"}</span>
-      </div>
-      <div className="bg-accent flex h-2.5 overflow-hidden rounded-full">
-        <div className="bg-primary h-full transition-[width] duration-500" style={{ width: `${share}%` }} />
-      </div>
-      <div className="grid grid-cols-4 gap-2">
-        {(["A", "B"] as Team[]).flatMap((t) => teamOf(m, t)).map((id) => {
+      <div className="grid grid-cols-4 gap-2 pt-1">
+        {m.playerIds.map((id) => {
           const p = m.players[id];
-          const ans = p.answers?.[idx];
+          const ans = p.answers?.[String(m.currentIndex)];
           return (
             <div key={id} className={cn("relative flex flex-col items-center gap-1 rounded-xl p-2", TEAM_META[p.team ?? "A"].soft)}>
               <PlayerAvatar name={p.name} size={30} />
@@ -393,6 +350,7 @@ function DuoBoard({ m, uid, idx }: { m: Match; uid: string; idx: string }) {
 /* ---------------- Results ---------------- */
 function Results({ m, uid }: { m: Match; uid: string }) {
   const { fb, profile } = useApp();
+  const { membership } = useClanMembership(fb?.db, uid);
   const rankedCfg = useRankedConfig(fb?.db);
   const [reward, setReward] = useState<MatchRewards | null>(null);
   const [clanWarSettle, setClanWarSettle] = useState<ClanWarSettleResult | null>(null);
@@ -436,8 +394,19 @@ function Results({ m, uid }: { m: Match; uid: string }) {
     if (canvasRef.current) renderBattleCardPreview(canvasRef.current, card);
   }, [card]);
 
-  // Determine user's clan delta when in a Clan War
-  const isChallengerClan = clanWarSettle ? clanWarSettle.challengerClanId === profile?.clanId : true;
+  // Determine user's clan delta accurately by checking participants roster and membership
+  const isChallengerClan = useMemo(() => {
+    if (!clanWarSettle) return true;
+    if (clanWarSettle.challengerUids?.includes(uid)) return true;
+    if (clanWarSettle.targetUids?.includes(uid)) return false;
+    if (clanWarSettle.p1Uid === uid) return true;
+    if (clanWarSettle.p2Uid === uid) return false;
+    if (membership?.clanId) {
+      return clanWarSettle.challengerClanId === membership.clanId;
+    }
+    return true;
+  }, [clanWarSettle, uid, membership?.clanId]);
+
   const myClanCpDelta = clanWarSettle
     ? (isChallengerClan ? clanWarSettle.cpDeltaA : clanWarSettle.cpDeltaB)
     : (result === "win" ? 25 : result === "draw" ? 10 : 0);
@@ -447,6 +416,9 @@ function Results({ m, uid }: { m: Match; uid: string }) {
   const myClanTotalCp = clanWarSettle
     ? (isChallengerClan ? clanWarSettle.newCpA : clanWarSettle.newCpB)
     : null;
+  const myClanTag = clanWarSettle
+    ? (isChallengerClan ? clanWarSettle.challengerClanTag : clanWarSettle.targetClanTag)
+    : "";
 
   function downloadCard() {
     const canvas = canvasRef.current;
@@ -473,7 +445,7 @@ function Results({ m, uid }: { m: Match; uid: string }) {
       if (blob) {
         const file = new File([blob], getBattleCardFileName(card), { type: "image/png" });
         if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ title: "Favoje Battle", text: summary, files: [file] });
+          await navigator.share({ title: "Juvora Battle", text: summary, files: [file] });
           return;
         }
       }
@@ -502,24 +474,40 @@ function Results({ m, uid }: { m: Match; uid: string }) {
         {isClanWar ? (
           <div className="mt-5 space-y-4">
             <div className="grid grid-cols-3 gap-2">
-              <Reward icon={Shield} label="Clan Points" value={`+${myClanCpDelta} CP`} />
+              <Reward icon={Shield} label={myClanTag ? `[${myClanTag}] Points` : "Clan Points"} value={`+${myClanCpDelta} CP`} />
               <Reward icon={Sparkles} label="Clan XP" value={`+${myClanXpDelta} XP`} />
               <Reward icon={Trophy} label="Clan Total" value={myClanTotalCp !== null ? `${myClanTotalCp} CP` : "Updated"} />
             </div>
 
             {clanWarSettle && (
               <div className="bg-muted/80 rounded-2xl p-4 text-left border border-border/60">
-                <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Clan War Scoreboard</div>
+                <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+                  Official Clan War Scoreboard
+                </div>
                 <div className="grid grid-cols-2 gap-3 text-center">
-                  <div className={cn("p-2.5 rounded-xl border", clanWarSettle.winnerClanId === clanWarSettle.challengerClanId ? "border-warning/50 bg-warning/10" : "border-border/60 bg-card/60")}>
-                    <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.challengerClanTag}]</div>
-                    <div className="text-xs font-black truncate">{clanWarSettle.challengerClanName}</div>
-                    <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreA}</div>
+                  <div className={cn("p-2.5 rounded-xl border flex flex-col justify-between", clanWarSettle.winnerClanId === clanWarSettle.challengerClanId ? "border-warning/50 bg-warning/10 ring-1 ring-warning/30" : "border-border/60 bg-card/60")}>
+                    <div>
+                      <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.challengerClanTag}]</div>
+                      <div className="text-xs font-black truncate">{clanWarSettle.challengerClanName}</div>
+                      <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreA}</div>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-center gap-1.5 text-[11px] font-bold">
+                      <span className="text-primary">+{clanWarSettle.cpDeltaA} CP</span>
+                      <span className="text-muted-foreground">•</span>
+                      <span className="text-warning">+{clanWarSettle.xpDeltaA} XP</span>
+                    </div>
                   </div>
-                  <div className={cn("p-2.5 rounded-xl border", clanWarSettle.winnerClanId === clanWarSettle.targetClanId ? "border-warning/50 bg-warning/10" : "border-border/60 bg-card/60")}>
-                    <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.targetClanTag}]</div>
-                    <div className="text-xs font-black truncate">{clanWarSettle.targetClanName}</div>
-                    <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreB}</div>
+                  <div className={cn("p-2.5 rounded-xl border flex flex-col justify-between", clanWarSettle.winnerClanId === clanWarSettle.targetClanId ? "border-warning/50 bg-warning/10 ring-1 ring-warning/30" : "border-border/60 bg-card/60")}>
+                    <div>
+                      <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.targetClanTag}]</div>
+                      <div className="text-xs font-black truncate">{clanWarSettle.targetClanName}</div>
+                      <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreB}</div>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-center gap-1.5 text-[11px] font-bold">
+                      <span className="text-primary">+{clanWarSettle.cpDeltaB} CP</span>
+                      <span className="text-muted-foreground">•</span>
+                      <span className="text-warning">+{clanWarSettle.xpDeltaB} XP</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -543,82 +531,54 @@ function Results({ m, uid }: { m: Match; uid: string }) {
         {!isClanWar && reward?.ranked && (
           <div className="bg-muted mt-3 rounded-2xl p-3 text-left">
             {reward.ranked.placementJustFinished && <div className="text-primary mb-1 text-sm font-extrabold">Placement complete — you start at {reward.ranked.rankAfter}!</div>}
-            {reward.ranked.streakBonus > 0 && <div className="text-warning mb-1 text-sm font-bold">Win streak bonus +{reward.ranked.streakBonus} RP</div>}
-            {reward.ranked.shielded && <div className="text-primary mb-1 text-sm font-bold">Demotion shield saved your rank!</div>}
-            {reward.ranked.change === "promoted" && <div className="text-success mb-1 text-sm font-extrabold">Promoted to {reward.ranked.rankAfter}!</div>}
-            {reward.ranked.change === "demoted" && <div className="text-destructive mb-1 text-sm font-extrabold">Demoted to {reward.ranked.rankAfter}</div>}
-            <RankBadge state={{ ...(profile ?? {}), ...reward.ranked.patch }} cfg={rankedCfg} showProgress />
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span className="text-muted-foreground">Competitive Tier</span>
+              <RankBadge rating={reward.ranked.ratingAfter} rp={reward.ranked.rpAfter} showRP />
+            </div>
           </div>
         )}
       </div>
 
-      <section className="surface-card p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-extrabold uppercase tracking-widest">Share your result</h3>
-          <Button variant="outline" size="sm" onClick={() => setSeed((v) => v + 1)}><Sparkles /> New look</Button>
+      {/* Shareable battle card preview */}
+      <div className="surface-card space-y-3 p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Battle summary</span>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSeed((s) => s + 1)}>
+            Change style
+          </Button>
         </div>
-        <div className="overflow-hidden rounded-3xl border">
-          <canvas ref={canvasRef} width={1200} height={1500} className="block h-auto w-full" aria-label="Battle result card" />
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-black/40">
+          <canvas ref={canvasRef} className="aspect-[1200/630] w-full" />
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <Button variant="hero" onClick={shareResult}>Share</Button>
-          <Button variant="glass" onClick={downloadCard}>Download</Button>
-          <Button variant="outline" onClick={copyResult}><Copy /> Copy</Button>
+        <div className="grid grid-cols-3 gap-2">
+          <Button variant="outline" size="sm" onClick={downloadCard}>Download</Button>
+          <Button variant="outline" size="sm" onClick={copyResult}>Copy text</Button>
+          <Button size="sm" onClick={shareResult}>Share card</Button>
         </div>
-      </section>
-
-      {m.mode === "duo" && (
-        <div className="grid grid-cols-2 gap-3">
-          {(["A", "B"] as Team[]).map((t) => {
-            const other = teamScore(m, t === "A" ? "B" : "A");
-            const mine = teamScore(m, t);
-            return (
-              <div key={t} className={cn("surface-card p-4 text-center", mine > other && "border-warning")}>
-                <Shield className={cn("mx-auto size-5", TEAM_META[t].text)} />
-                <div className={cn("text-xs font-bold", TEAM_META[t].text)}>{TEAM_META[t].name}</div>
-                <div className="tabular text-2xl font-extrabold">{mine}</div>
-                {mine > other && <Crown className="text-warning mx-auto mt-1 size-4" />}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="surface-card divide-y">
-        {order.slice(0, 50).map((id, i) => {
-          const p = m.players[id];
-          return (
-            <div key={id} className={cn("flex items-center gap-3 p-3", id === uid && "bg-primary/8")}>
-              <span className="tabular text-muted-foreground w-6 text-center text-sm font-bold">{i + 1}</span>
-              <PlayerAvatar name={p.name} size={32} />
-              <span className="flex-1 truncate text-sm font-semibold">{p.name}{id === uid && " (you)"}</span>
-              {m.winnerIds.includes(id) && <Crown className="text-warning size-4" />}
-              <span className="text-muted-foreground tabular text-xs">{p.correct}✓</span>
-              <span className="tabular w-12 text-right text-sm font-bold">{p.score}</span>
-            </div>
-          );
-        })}
       </div>
 
-      {/* Navigation buttons: Clan War direct shortcuts vs General Battle shortcuts */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="flex gap-2">
         {isClanWar ? (
           <>
-            <Button asChild variant="outline" size="lg">
-              <Link to={`/clan-war/${clanWarId}`}>
-                <Shield className="mr-2 size-4" /> War Room
+            <Button asChild size="lg" className="flex-1 font-bold">
+              <Link to="/clan-war/$challengeId" params={{ challengeId: clanWarId! }}>
+                <Swords className="mr-2 size-4" /> War Room
               </Link>
             </Button>
-            <Button asChild variant="hero" size="lg">
+            <Button asChild variant="outline" size="lg" className="flex-1 font-bold">
               <Link to="/clans">
-                <Users className="mr-2 size-4" /> Clan HQ
+                <Shield className="mr-2 size-4" /> Clan HQ
               </Link>
             </Button>
           </>
         ) : (
           <>
-            <Button asChild variant="outline" size="lg"><Link to="/home"><Home /> Home</Link></Button>
-            <Button asChild variant="hero" size="lg"><Link to="/battle"><Swords /> Play again</Link></Button>
+            <Button asChild size="lg" className="flex-1 font-bold">
+              <Link to="/battle">Play again</Link>
+            </Button>
+            <Button asChild variant="outline" size="lg" className="flex-1 font-bold">
+              <Link to="/rankings">Rankings</Link>
+            </Button>
           </>
         )}
       </div>
@@ -626,12 +586,12 @@ function Results({ m, uid }: { m: Match; uid: string }) {
   );
 }
 
-function Reward({ icon: Icon, label, value }: { icon: typeof Coins; label: string; value: string }) {
+function Reward({ icon: Icon, label, value }: { icon: typeof Sparkles; label: string; value: string }) {
   return (
-    <div className="bg-muted rounded-2xl p-3">
-      <Icon className="text-primary mx-auto size-4" />
-      <div className="tabular mt-1 font-extrabold">{value}</div>
-      <div className="text-muted-foreground text-xs">{label}</div>
+    <div className="bg-muted rounded-2xl p-3 text-center">
+      <Icon className="text-primary mx-auto size-5" />
+      <div className="tabular text-lg font-black">{value}</div>
+      <div className="text-muted-foreground text-[11px] font-semibold">{label}</div>
     </div>
   );
 }
