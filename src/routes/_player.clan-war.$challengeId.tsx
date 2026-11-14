@@ -12,14 +12,14 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import {
-  ArrowLeft,
+  Award,
   CheckCircle2,
   Clock,
   Copy,
   Crown,
   Flame,
+  HelpCircle,
   Loader2,
-  LogOut,
   Medal,
   Play,
   Radio,
@@ -62,6 +62,10 @@ type WarChallenge = DocumentData & {
   playerTwoUid?: string;
   winnerClanId?: string | null;
   scores?: Record<string, number>;
+  cpDeltaA?: number;
+  cpDeltaB?: number;
+  xpDeltaA?: number;
+  xpDeltaB?: number;
   resolvedAt?: number;
   settings?: {
     subjects?: string[];
@@ -78,14 +82,26 @@ interface WarPresence {
 }
 
 export const Route = createFileRoute("/_player/clan-war/$challengeId")({
-  component: ClanWarWaitingRoom,
   head: () => ({
-    title: "Clan War Waiting Room | Juvora Esports",
-    meta: [{ name: "description", content: "Set up, launch, and review your clan war." }],
+    meta: [
+      { title: "Clan War Room • Juvora" },
+      {
+        name: "description",
+        content: "Assemble your clan roster and lead your clan to victory in live Clan Wars.",
+      },
+      { property: "og:title", content: "Clan War Room • Juvora" },
+      {
+        property: "og:description",
+        content: "Assemble your clan roster and lead your clan to victory in live Clan Wars.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
   }),
+  component: ClanWarChallengeRoute,
 });
 
-function ClanWarWaitingRoom() {
+function ClanWarChallengeRoute() {
   const { challengeId } = Route.useParams();
   const { fb, user, profile } = useApp();
   const navigate = useNavigate();
@@ -98,19 +114,21 @@ function ClanWarWaitingRoom() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Online presences inside this specific clan war room
+  // Settings
+  const [questionCount, setQuestionCount] = useState<number>(10);
+  const [secondsPerQuestion, setSecondsPerQuestion] = useState<number>(15);
+  const [customSubjects, setCustomSubjects] = useState<string>("general, mathematics, english");
+
+  // Real-time Presence
   const [presences, setPresences] = useState<WarPresence[]>([]);
 
-  const [subjects, setSubjects] = useState<string[]>(["general", "mathematics", "english"]);
-  const [secondsPerQuestion, setSecondsPerQuestion] = useState(15);
-  const [questionCount, setQuestionCount] = useState(10);
-
-  // 1. Listen for challenge updates
+  // 1. Listen for challenge
   useEffect(() => {
-    if (!fb) return;
+    if (!fb || !challengeId) return;
 
+    const challengeRef = doc(fb.db, "clanBattles", challengeId);
     return onSnapshot(
-      doc(fb.db, "clanBattles", challengeId),
+      challengeRef,
       (snapshot) => {
         if (!snapshot.exists()) {
           setChallenge(null);
@@ -118,19 +136,23 @@ function ClanWarWaitingRoom() {
           return;
         }
 
-        const data = { ...snapshot.data(), id: snapshot.id } as WarChallenge;
+        const data = { id: snapshot.id, ...snapshot.data() } as WarChallenge;
         setChallenge(data);
 
-        const nextSubjects =
-          data.settings?.subjects?.length
-            ? data.settings.subjects
-            : buildClanWarQuestionSubjects(data.format, ["general", "mathematics", "english"]);
+        if (data.settings?.questionCount) {
+          setQuestionCount(data.settings.questionCount);
+        } else {
+          setQuestionCount(getClanWarQuestionCount(data.format));
+        }
 
-        setSubjects(nextSubjects);
-        setSecondsPerQuestion(data.settings?.secondsPerQuestion ?? 15);
-        setQuestionCount(
-          data.settings?.questionCount ?? getClanWarQuestionCount(data.format),
-        );
+        if (data.settings?.secondsPerQuestion) {
+          setSecondsPerQuestion(data.settings.secondsPerQuestion);
+        }
+
+        if (data.settings?.subjects?.length) {
+          setCustomSubjects(data.settings.subjects.join(", "));
+        }
+
         setLoading(false);
       },
       () => setLoading(false),
@@ -144,17 +166,22 @@ function ClanWarWaitingRoom() {
       return;
     }
 
+    const membershipQuery = query(
+      collection(fb.db, "clanMembers"),
+      where("uid", "==", user.uid),
+    );
+
     return onSnapshot(
-      query(collection(fb.db, "clanMembers"), where("uid", "==", user.uid)),
+      membershipQuery,
       (snapshot) => {
-        const item = snapshot.docs[0];
-        if (!item) {
+        if (snapshot.empty) {
           setMembership(null);
           return;
         }
 
+        const data = snapshot.docs[0].data() as Omit<ClanMember, "uid">;
         setMembership({
-          ...item.data(),
+          ...data,
           uid: user.uid,
         } as ClanMember);
       },
@@ -167,7 +194,7 @@ function ClanWarWaitingRoom() {
       ? challenge.targetClanId
       : challenge?.challengerClanId;
 
-  // 3. Load clans
+  // 3. Listen for own clan doc
   useEffect(() => {
     if (!fb || !ownClanId) {
       setOwnClan(null);
@@ -175,14 +202,15 @@ function ClanWarWaitingRoom() {
     }
 
     return onSnapshot(doc(fb.db, "clans", ownClanId), (snapshot) => {
-      setOwnClan(
-        snapshot.exists()
-          ? ({ ...snapshot.data(), id: snapshot.id } as ClanDoc)
-          : null,
-      );
+      if (snapshot.exists()) {
+        setOwnClan({ id: snapshot.id, ...snapshot.data() } as ClanDoc);
+      } else {
+        setOwnClan(null);
+      }
     });
   }, [fb, ownClanId]);
 
+  // 4. Listen for opponent clan doc
   useEffect(() => {
     if (!fb || !opposingClanId) {
       setOpponentClan(null);
@@ -190,15 +218,15 @@ function ClanWarWaitingRoom() {
     }
 
     return onSnapshot(doc(fb.db, "clans", opposingClanId), (snapshot) => {
-      setOpponentClan(
-        snapshot.exists()
-          ? ({ ...snapshot.data(), id: snapshot.id } as ClanDoc)
-          : null,
-      );
+      if (snapshot.exists()) {
+        setOpponentClan({ id: snapshot.id, ...snapshot.data() } as ClanDoc);
+      } else {
+        setOpponentClan(null);
+      }
     });
   }, [fb, opposingClanId]);
 
-  // 4. Load own clan members for display
+  // 5. Listen for clan members of user's clan
   useEffect(() => {
     if (!fb || !ownClanId) {
       setMembers([]);
@@ -210,10 +238,10 @@ function ClanWarWaitingRoom() {
       (snapshot) => {
         setMembers(
           snapshot.docs.map(
-            (item) =>
+            (docSnapshot) =>
               ({
-                ...item.data(),
-                uid: item.data().uid ?? item.id.split("_").slice(1).join("_"),
+                ...docSnapshot.data(),
+                uid: docSnapshot.data().uid ?? docSnapshot.id.split("_")[1],
               }) as ClanMember,
           ),
         );
@@ -221,7 +249,7 @@ function ClanWarWaitingRoom() {
     );
   }, [fb, ownClanId]);
 
-  // 5. Active Presence Heartbeat in this war room
+  // 6. Active Presence Heartbeat in this war room
   useEffect(() => {
     if (!fb || !user || !profile || !membership || !challengeId) return;
 
@@ -241,7 +269,7 @@ function ClanWarWaitingRoom() {
     };
 
     sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 8_000);
+    const interval = setInterval(sendHeartbeat, 8000);
 
     return () => {
       clearInterval(interval);
@@ -249,20 +277,19 @@ function ClanWarWaitingRoom() {
     };
   }, [fb, user, profile?.username, membership?.clanId, challengeId]);
 
-  // 6. Listen for all online presence in this war room
+  // 7. Listen for all online presence in this war room
   useEffect(() => {
     if (!fb || !challengeId) return;
 
-    const presenceCol = collection(fb.db, "clanBattles", challengeId, "presence");
+    const presencesRef = collection(fb.db, "clanBattles", challengeId, "presence");
     return onSnapshot(
-      presenceCol,
+      presencesRef,
       (snapshot) => {
-        const now = Date.now();
+        const threshold = Date.now() - 25000;
         const active: WarPresence[] = [];
-        snapshot.docs.forEach((docSnap) => {
+        snapshot.forEach((docSnap) => {
           const data = docSnap.data() as WarPresence;
-          // Player must have sent a heartbeat within the last 25 seconds
-          if (data && now - (data.lastSeen || 0) < 25_000) {
+          if (data.lastSeen && data.lastSeen > threshold) {
             active.push(data);
           }
         });
@@ -299,7 +326,6 @@ function ClanWarWaitingRoom() {
   const hasTargetClanOnline = targetClanOnline.length > 0;
   const hasBothClansOnline = hasInvitingClanOnline && hasTargetClanOnline;
 
-  // Either clan's officers can launch once both rosters are locked in AND both clans are online
   const canConfigure =
     isInvitingClan &&
     !!membership &&
@@ -348,15 +374,12 @@ function ClanWarWaitingRoom() {
   if (!fb || !user || !profile || !challenge) {
     return (
       <div className="surface-card space-y-4 p-6 text-center">
-        <h1 className="text-xl font-black">Clan war unavailable</h1>
+        <h1 className="text-xl font-black">Clan War not found</h1>
         <p className="text-sm text-muted-foreground">
-          This invitation could not be found or has been removed.
+          This clan battle challenge does not exist or was deleted.
         </p>
         <Button asChild variant="outline">
-          <Link to="/clans">
-            <ArrowLeft className="mr-2 size-4" />
-            Back to clans
-          </Link>
+          <Link to="/clans">Back to Clans HQ</Link>
         </Button>
       </div>
     );
@@ -371,7 +394,8 @@ function ClanWarWaitingRoom() {
       <div className="surface-card space-y-4 p-6 text-center">
         <h1 className="text-xl font-black">Clan members only</h1>
         <p className="text-sm text-muted-foreground">
-          You must belong to one of the clans in this war to enter its waiting room.
+          You must be an active member of either [{challenge.challengerClanTag}] or [
+          {challenge.targetClanTag}] to participate in this War Room.
         </p>
         <Button asChild variant="outline">
           <Link to="/clans">Back to clans</Link>
@@ -399,13 +423,19 @@ function ClanWarWaitingRoom() {
     const scores = challenge.scores ?? {};
     const scoreA = scores[challenge.challengerClanId] ?? 0;
     const scoreB = scores[challenge.targetClanId] ?? 0;
-    const winnerId = challenge.winnerClanId;
+    const winnerId = challenge.winnerClanId ?? null;
     const isWinner = winnerId === ownClanId;
     const isDraw = winnerId === null;
-    const isChallengerClan = ownClanId === challenge.challengerClanId;
 
-    const myClanCpGain = isDraw ? 10 : isWinner ? 25 : 0;
-    const myClanXpGain = isDraw ? 50 : isWinner ? 100 : 25;
+    const cpGainA = typeof challenge.cpDeltaA === "number" ? challenge.cpDeltaA : (winnerId === challenge.challengerClanId ? 25 : isDraw ? 10 : 0);
+    const xpGainA = typeof challenge.xpDeltaA === "number" ? challenge.xpDeltaA : (winnerId === challenge.challengerClanId ? 100 : isDraw ? 50 : 25);
+
+    const cpGainB = typeof challenge.cpDeltaB === "number" ? challenge.cpDeltaB : (winnerId === challenge.targetClanId ? 25 : isDraw ? 10 : 0);
+    const xpGainB = typeof challenge.xpDeltaB === "number" ? challenge.xpDeltaB : (winnerId === challenge.targetClanId ? 100 : isDraw ? 50 : 25);
+
+    const isChallengerSide = ownClanId === challenge.challengerClanId;
+    const myClanCpGain = isChallengerSide ? cpGainA : cpGainB;
+    const myClanXpGain = isChallengerSide ? xpGainA : xpGainB;
 
     const challengerFighter = challenge.playerOneUid;
     const targetFighter = challenge.playerTwoUid;
@@ -418,7 +448,7 @@ function ClanWarWaitingRoom() {
       (targetFighter === user.uid ? profile.username : "Opponent Champion");
 
     async function copyWarReport() {
-      const summaryText = `⚔️ CLAN WAR REPORT\n[${challenge.challengerClanTag}] ${challenge.challengerClanName}: ${scoreA} pts\n[${challenge.targetClanTag}] ${challenge.targetClanName}: ${scoreB} pts\nResult: ${isDraw ? "Honorable Draw" : isWinner ? "Clan Victory!" : "Clan Defeat"}\nClan Points: +${myClanCpGain} CP | XP: +${myClanXpGain} XP`;
+      const summaryText = `⚔️ CLAN WAR REPORT\n[${challenge.challengerClanTag}] ${challenge.challengerClanName}: ${scoreA} pts (+${cpGainA} CP, +${xpGainA} XP)\n[${challenge.targetClanTag}] ${challenge.targetClanName}: ${scoreB} pts (+${cpGainB} CP, +${xpGainB} XP)\nResult: ${isDraw ? "Honorable Draw" : isWinner ? "Clan Victory!" : "Clan Defeat"}\nMy Clan Impact: +${myClanCpGain} CP | +${myClanXpGain} XP`;
       try {
         await navigator.clipboard.writeText(summaryText);
         toast.success("Clan War report copied to clipboard!");
@@ -497,7 +527,7 @@ function ClanWarWaitingRoom() {
                 : `Your clan fought with courage. Regroup, upgrade your roster, and rise again.`}
           </p>
 
-          {/* Epic Clan Versus Scoreboard */}
+          {/* Head-to-Head Scoreboard with clear CP and XP per clan */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             {/* Challenger Clan Card */}
             <div
@@ -527,6 +557,11 @@ function ClanWarWaitingRoom() {
                   Final War Score
                 </span>
                 <span className="tabular text-4xl font-black text-primary">{scoreA}</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-muted/60 p-2.5 text-xs font-bold">
+                <span className="text-primary">+{cpGainA} CP</span>
+                <span className="text-muted-foreground">•</span>
+                <span className="text-warning">+{xpGainA} Clan XP</span>
               </div>
             </div>
 
@@ -559,6 +594,11 @@ function ClanWarWaitingRoom() {
                 </span>
                 <span className="tabular text-4xl font-black text-primary">{scoreB}</span>
               </div>
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-muted/60 p-2.5 text-xs font-bold">
+                <span className="text-primary">+{cpGainB} CP</span>
+                <span className="text-muted-foreground">•</span>
+                <span className="text-warning">+{xpGainB} Clan XP</span>
+              </div>
             </div>
           </div>
         </section>
@@ -568,7 +608,7 @@ function ClanWarWaitingRoom() {
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
             <h2 className="flex items-center gap-2 text-base font-black">
               <Shield className="size-5 text-primary" />
-              Clan Rewards & Standing Impact
+              Your Clan's Rewards & Impact
             </h2>
             <span className="text-xs font-bold text-muted-foreground">
               {ownClan ? `[${ownClan.tag}] ${ownClan.name}` : "Your Clan"}
@@ -632,91 +672,62 @@ function ClanWarWaitingRoom() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             {/* Fighter 1 */}
-            <div
-              className={cn(
-                "flex items-center gap-3 rounded-2xl border p-4",
-                scoreA >= scoreB && scoreA > 0
-                  ? "border-warning/50 bg-warning/5"
-                  : "border-border/60 bg-muted/30",
-              )}
-            >
-              <PlayerAvatar
-                name={challengerFighterName}
-                size={48}
-                ring={scoreA >= scoreB && scoreA > 0}
-              />
+            <div className="flex items-center gap-3.5 rounded-2xl border border-border/60 bg-muted/30 p-4">
+              <PlayerAvatar name={challengerFighterName} size={48} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-black">
-                    {challengerFighterName}
+                  <span className="text-xs font-black text-primary">
+                    [{challenge.challengerClanTag}]
                   </span>
-                  {scoreA >= scoreB && scoreA > 0 && (
-                    <Crown className="size-4 text-warning shrink-0" />
+                  <span className="truncate text-sm font-black">{challengerFighterName}</span>
+                  {scoreA > scoreB && (
+                    <Crown className="size-4 shrink-0 text-warning" />
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground truncate">
-                  [{challenge.challengerClanTag}] {challenge.challengerClanName}
+                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground font-semibold">
+                  <span>Score: <strong className="text-foreground">{scoreA} pts</strong></span>
+                  <span>•</span>
+                  <span>{scoreA > scoreB ? "Duel Champion" : "Combatant"}</span>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="tabular text-xl font-black text-primary">{scoreA}</div>
-                <div className="text-[10px] font-bold text-muted-foreground">pts</div>
               </div>
             </div>
 
             {/* Fighter 2 */}
-            <div
-              className={cn(
-                "flex items-center gap-3 rounded-2xl border p-4",
-                scoreB >= scoreA && scoreB > 0
-                  ? "border-warning/50 bg-warning/5"
-                  : "border-border/60 bg-muted/30",
-              )}
-            >
-              <PlayerAvatar
-                name={targetFighterName}
-                size={48}
-                ring={scoreB >= scoreA && scoreB > 0}
-              />
+            <div className="flex items-center gap-3.5 rounded-2xl border border-border/60 bg-muted/30 p-4">
+              <PlayerAvatar name={targetFighterName} size={48} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-primary">
+                    [{challenge.targetClanTag}]
+                  </span>
                   <span className="truncate text-sm font-black">{targetFighterName}</span>
-                  {scoreB >= scoreA && scoreB > 0 && (
-                    <Crown className="size-4 text-warning shrink-0" />
+                  {scoreB > scoreA && (
+                    <Crown className="size-4 shrink-0 text-warning" />
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground truncate">
-                  [{challenge.targetClanTag}] {challenge.targetClanName}
+                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground font-semibold">
+                  <span>Score: <strong className="text-foreground">{scoreB} pts</strong></span>
+                  <span>•</span>
+                  <span>{scoreB > scoreA ? "Duel Champion" : "Combatant"}</span>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="tabular text-xl font-black text-primary">{scoreB}</div>
-                <div className="text-[10px] font-bold text-muted-foreground">pts</div>
               </div>
             </div>
           </div>
         </section>
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Button asChild size="lg" className="w-full font-bold shadow-glow">
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button asChild size="lg" className="flex-1 font-bold shadow-glow">
             <Link to="/clans">
               <Shield className="mr-2 size-4" />
-              Clan HQ
-            </Link>
-          </Button>
-
-          <Button asChild size="lg" variant="outline" className="w-full font-bold">
-            <Link to="/clans">
-              <Swords className="mr-2 size-4" />
-              War Arena
+              Return to Clan HQ
             </Link>
           </Button>
 
           <Button
-            size="lg"
             variant="outline"
-            className="w-full font-bold"
+            size="lg"
+            className="flex-1 font-bold"
             onClick={() => void copyWarReport()}
           >
             <Copy className="mr-2 size-4" />
@@ -724,9 +735,9 @@ function ClanWarWaitingRoom() {
           </Button>
 
           <Button
-            size="lg"
             variant="outline"
-            className="w-full font-bold"
+            size="lg"
+            className="flex-1 font-bold"
             onClick={() => void shareWarReport()}
           >
             <Share2 className="mr-2 size-4" />
@@ -785,19 +796,19 @@ function ClanWarWaitingRoom() {
         const challengeSnapshot = await transaction.get(challengeRef);
 
         if (!challengeSnapshot.exists()) {
-          throw new Error("This war room is no longer available.");
+          throw new Error("This war challenge is no longer available.");
         }
 
         const data = challengeSnapshot.data();
         if (data.status !== "accepted" && data.status !== "pending") {
-          throw new Error("The war is no longer accepting players.");
+          throw new Error("Roster cannot be modified right now.");
         }
 
         const roster = (data[field] ?? []) as string[];
         if (roster.includes(currentUid)) return;
 
         if (roster.length >= expectedPlayers) {
-          throw new Error("Your clan's roster is already full.");
+          throw new Error("Roster was filled by another member.");
         }
 
         transaction.update(challengeRef, {
@@ -836,16 +847,21 @@ function ClanWarWaitingRoom() {
         });
       });
 
-      toast.info("You stepped down from the war roster.");
+      toast.success("You left the war roster.");
     } catch (error) {
-      toast.error((error as Error).message || "Could not leave the roster.");
+      toast.error((error as Error).message || "Could not leave roster.");
     } finally {
       setBusy(false);
     }
   }
 
   async function startWar() {
-    if (!fb || !user || !challenge || (!canConfigure && !canLaunch) || busy) return;
+    if (!fb || !user || !challenge || !membership || busy) return;
+
+    if (!canPerformClanAction(membership.role, "battle")) {
+      toast.error("Only clan officers can start a clan war match.");
+      return;
+    }
 
     // Strict presence validation
     if (!hasInvitingClanOnline) {
@@ -880,16 +896,12 @@ function ClanWarWaitingRoom() {
 
     const nextSubjects = Array.from(
       new Set(
-        (subjects.length ? subjects : ["general", "mathematics", "english"]).map((s) =>
-          String(s).trim().toLowerCase(),
-        ),
+        customSubjects
+          .split(",")
+          .map((subject) => subject.trim().toLowerCase())
+          .filter(Boolean),
       ),
-    ).filter(Boolean);
-
-    if (nextSubjects.length === 0) {
-      toast.error("Select at least one subject category.");
-      return;
-    }
+    );
 
     setBusy(true);
 
@@ -953,162 +965,168 @@ function ClanWarWaitingRoom() {
 
   const sideName = (clanId: string) =>
     clanId === challenge.challengerClanId
-      ? challenge.challengerClanName
-      : challenge.targetClanName;
+      ? `[${challenge.challengerClanTag}] ${challenge.challengerClanName}`
+      : `[${challenge.targetClanTag}] ${challenge.targetClanName}`;
+
+  const subjects = buildClanWarQuestionSubjects(
+    challenge.format,
+    challenge.settings?.subjects,
+  );
 
   const isPending = challenge.status === "pending";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
-      {/* Pending status banner for inviter */}
-      {isPending && (
-        <div className="surface-card flex items-center justify-between gap-3 p-4 border border-warning/40 bg-warning/5 rounded-xl">
-          <div className="flex items-center gap-3">
-            <Clock className="size-5 text-warning shrink-0 animate-pulse" />
-            <div>
-              <div className="text-sm font-bold text-foreground">
-                Awaiting Opponent Acceptance
-              </div>
-              <div className="text-xs text-muted-foreground">
-                [{challenge.targetClanTag}] {challenge.targetClanName} has not accepted yet.
-                You can lock in your roster spot and customize settings in advance!
-              </div>
-            </div>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-black uppercase text-primary">
+              Clan War Arena
+            </span>
+            <span className="text-xs text-muted-foreground">•</span>
+            <span className="text-xs font-bold text-muted-foreground uppercase">
+              {challenge.format} format
+            </span>
           </div>
-          <Button asChild size="sm" variant="outline">
-            <Link to="/clans">Back to Clans</Link>
+          <h1 className="mt-1 text-2xl font-black sm:text-3xl">
+            [{challenge.challengerClanTag}] vs [{challenge.targetClanTag}]
+          </h1>
+          <p className="text-xs text-muted-foreground sm:text-sm">
+            Status:{" "}
+            <span
+              className={cn(
+                "font-black uppercase",
+                challenge.status === "accepted" ? "text-success" : "text-warning",
+              )}
+            >
+              {challenge.status}
+            </span>{" "}
+            • Lock in roster combatants below
+          </p>
+        </div>
+
+        <Button asChild variant="outline" size="sm">
+          <Link to="/clans">
+            <Shield className="mr-1.5 size-4" />
+            Back to Clan HQ
+          </Link>
+        </Button>
+      </div>
+
+      {isPending && (
+        <div className="surface-card border-warning/40 bg-warning/5 p-4 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="text-sm font-black text-warning flex items-center justify-center sm:justify-start gap-1.5">
+              <Clock className="size-4" />
+              War Invitation Awaiting Acceptance
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isInvitingClan
+                ? `Waiting for [${challenge.targetClanTag}] officers to accept your war challenge.`
+                : `Your clan has been challenged! An officer can accept from the Clans War Arena tab.`}
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link to="/clans">View in Clan Arena</Link>
           </Button>
         </div>
       )}
 
-      {/* Main Header */}
-      <section className="hero-card relative overflow-hidden p-6">
-        <Shield className="absolute -right-4 -top-5 size-32 text-primary/10" />
-        <div className="relative">
-          <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs font-bold uppercase tracking-wider">
-            <Sparkles className="size-4 text-primary" />
-            Clan War Waiting Room
-          </div>
-
-          <h1 className="mt-4 text-2xl font-black sm:text-3xl">
-            {challenge.challengerClanName}
-            <span className="mx-3 text-primary">vs</span>
-            {challenge.targetClanName}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {challenge.format} format • mixed question pool • {questionCount} questions
-          </p>
-        </div>
-      </section>
-
-      {/* Real-time Clan Presence Bar */}
-      <section className="surface-card p-4 space-y-3">
+      {/* Online War Room Presence Bar */}
+      <section className="surface-card space-y-3 p-4">
         <div className="flex items-center justify-between border-b border-border/60 pb-2">
-          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-muted-foreground">
+          <h2 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <Radio className="size-3.5 text-primary animate-pulse" />
             Active Clan Presence in War Room
-          </div>
-          <span
-            className={cn(
-              "text-xs font-bold px-2 py-0.5 rounded-full",
-              hasBothClansOnline
-                ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/30"
-                : "bg-warning/10 text-warning border border-warning/30",
-            )}
-          >
-            {hasBothClansOnline
-              ? "✓ Both Clans Present"
-              : "Waiting for Opposing Clan"}
+          </h2>
+          <span className="text-xs font-bold">
+            {presences.length} player(s) present
           </span>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          {/* Inviting Clan Online Status */}
+          {/* Inviting Clan Presence */}
           <div
             className={cn(
-              "rounded-xl border p-3 text-sm transition-all",
+              "rounded-xl border p-3 text-xs transition-all",
               hasInvitingClanOnline
-                ? "border-emerald-500/30 bg-emerald-500/5"
-                : "border-warning/30 bg-warning/5",
+                ? "border-success/40 bg-success/5"
+                : "border-destructive/40 bg-destructive/5",
             )}
           >
-            <div className="flex items-center justify-between">
-              <div className="font-bold flex items-center gap-2">
+            <div className="flex items-center justify-between font-bold">
+              <span className="flex items-center gap-1.5">
                 <span
                   className={cn(
                     "size-2 rounded-full",
-                    hasInvitingClanOnline
-                      ? "bg-emerald-500 animate-ping"
-                      : "bg-warning",
+                    hasInvitingClanOnline ? "bg-success animate-pulse" : "bg-destructive",
                   )}
                 />
                 [{challenge.challengerClanTag}] {challenge.challengerClanName}
-              </div>
-              <span className="text-xs font-bold text-muted-foreground">
-                {invitingClanOnline.length} online
+              </span>
+              <span
+                className={cn(
+                  "text-[11px] font-black uppercase",
+                  hasInvitingClanOnline ? "text-success" : "text-destructive",
+                )}
+              >
+                {hasInvitingClanOnline ? "Online" : "No players in room"}
               </span>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-              {invitingClanOnline.length ? (
-                invitingClanOnline.map((p) => (
+            {invitingClanOnline.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {invitingClanOnline.map((p) => (
                   <span
                     key={p.uid}
-                    className="rounded-md bg-background/80 px-2 py-0.5 font-medium border border-border/60"
+                    className="rounded-md bg-background/80 px-2 py-0.5 text-[11px] font-semibold border border-border/50"
                   >
                     {p.username}
-                    {p.uid === user.uid ? " (you)" : ""}
                   </span>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground italic">
-                  Awaiting player from inviting clan to enter room...
-                </span>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Target Clan Online Status */}
+          {/* Opponent Clan Presence */}
           <div
             className={cn(
-              "rounded-xl border p-3 text-sm transition-all",
+              "rounded-xl border p-3 text-xs transition-all",
               hasTargetClanOnline
-                ? "border-emerald-500/30 bg-emerald-500/5"
-                : "border-warning/30 bg-warning/5",
+                ? "border-success/40 bg-success/5"
+                : "border-destructive/40 bg-destructive/5",
             )}
           >
-            <div className="flex items-center justify-between">
-              <div className="font-bold flex items-center gap-2">
+            <div className="flex items-center justify-between font-bold">
+              <span className="flex items-center gap-1.5">
                 <span
                   className={cn(
                     "size-2 rounded-full",
-                    hasTargetClanOnline
-                      ? "bg-emerald-500 animate-ping"
-                      : "bg-warning",
+                    hasTargetClanOnline ? "bg-success animate-pulse" : "bg-destructive",
                   )}
                 />
                 [{challenge.targetClanTag}] {challenge.targetClanName}
-              </div>
-              <span className="text-xs font-bold text-muted-foreground">
-                {targetClanOnline.length} online
+              </span>
+              <span
+                className={cn(
+                  "text-[11px] font-black uppercase",
+                  hasTargetClanOnline ? "text-success" : "text-destructive",
+                )}
+              >
+                {hasTargetClanOnline ? "Online" : "No players in room"}
               </span>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-              {targetClanOnline.length ? (
-                targetClanOnline.map((p) => (
+            {targetClanOnline.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {targetClanOnline.map((p) => (
                   <span
                     key={p.uid}
-                    className="rounded-md bg-background/80 px-2 py-0.5 font-medium border border-border/60"
+                    className="rounded-md bg-background/80 px-2 py-0.5 text-[11px] font-semibold border border-border/50"
                   >
                     {p.username}
-                    {p.uid === user.uid ? " (you)" : ""}
                   </span>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground italic">
-                  Awaiting player from opponent clan to enter room...
-                </span>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1145,54 +1163,81 @@ function ClanWarWaitingRoom() {
                   {sideName(clanId)}
                 </h2>
                 <span className="text-xs font-semibold text-muted-foreground">
-                  {roster.length}/{maxRoster} slots filled
+                  {roster.length}/{maxRoster} players
                 </span>
               </div>
 
-              {roster.length ? (
-                <div className="space-y-2">
-                  {roster.map((uid, index) => (
+              <div className="space-y-2">
+                {roster.map((playerUid, index) => {
+                  const member = memberLookup.get(playerUid);
+                  const isCurrent = playerUid === user.uid;
+                  return (
                     <div
-                      key={uid}
-                      className="flex items-center gap-2 rounded-lg bg-muted/60 p-2 text-sm"
+                      key={playerUid}
+                      className={cn(
+                        "flex items-center justify-between rounded-xl border p-2.5",
+                        isCurrent
+                          ? "border-primary bg-primary/10"
+                          : "border-border/60 bg-muted/40",
+                      )}
                     >
-                      {index === 0 && <Crown className="size-4 text-warning" />}
-                      <span className="truncate">
-                        {memberLookup.get(uid)?.username ??
-                          (uid === user.uid ? profile.username : "Clan champion")}
-                        {uid === user.uid ? " (you)" : ""}
+                      <div className="flex items-center gap-2">
+                        <PlayerAvatar
+                          name={
+                            member?.username ??
+                            (isCurrent ? profile.username : `Fighter #${index + 1}`)
+                          }
+                          size={28}
+                        />
+                        <span className="text-xs font-bold">
+                          {member?.username ??
+                            (isCurrent ? profile.username : `Member (${playerUid.slice(0, 5)})`)}
+                        </span>
+                        {isCurrent && (
+                          <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-black text-primary-foreground">
+                            YOU
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        Spot #{index + 1}
                       </span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
-                  No members have locked in their roster spot yet.
-                </div>
-              )}
+                  );
+                })}
+
+                {Array.from({ length: Math.max(0, maxRoster - roster.length) }).map(
+                  (_, emptyIndex) => (
+                    <div
+                      key={emptyIndex}
+                      className="rounded-xl border border-dashed border-border/70 p-3 text-center text-xs text-muted-foreground"
+                    >
+                      Empty Spot #{roster.length + emptyIndex + 1}
+                    </div>
+                  ),
+                )}
+              </div>
 
               {canJoinThisSide && (
-                <div className="pt-1">
-                  {!roster.includes(user.uid) ? (
+                <div className="pt-2">
+                  {roster.includes(user.uid) ? (
                     <Button
                       variant="outline"
+                      size="sm"
+                      className="w-full text-destructive"
+                      disabled={busy}
+                      onClick={() => void leaveWar()}
+                    >
+                      Leave Roster
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
                       className="w-full font-bold"
                       disabled={busy || roster.length >= maxRoster}
                       onClick={() => void joinWar()}
                     >
-                      <Users className="mr-2 size-4" />
-                      Lock in my roster spot
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full text-xs text-destructive hover:text-destructive"
-                      disabled={busy}
-                      onClick={() => void leaveWar()}
-                    >
-                      <LogOut className="mr-2 size-3" />
-                      Step down from roster
+                      Join Roster ({maxRoster - roster.length} spot left)
                     </Button>
                   )}
                 </div>
@@ -1202,40 +1247,22 @@ function ClanWarWaitingRoom() {
         })}
       </section>
 
-      {/* Host Controls & Match Launch */}
-      {canConfigure && (
+      {/* War Launch Configuration (Available to officers of either clan once ready) */}
+      {(canConfigure || canLaunch) && (
         <section className="surface-card space-y-4 p-5">
-          <div>
-            <h2 className="flex items-center gap-2 font-black">
-              <Crown className="size-4 text-warning" />
-              War Setup & Launch
+          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+            <h2 className="flex items-center gap-2 font-black text-base">
+              <Swords className="size-4 text-primary" />
+              War Launch & Match Settings
             </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Configure duel parameters, then launch once both sides fill rosters and have
-              players online.
-            </p>
+            <span className="text-xs text-muted-foreground font-semibold">
+              Officer Controls
+            </span>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="space-y-1 text-xs font-semibold">
-              <span>Question Pool Subjects</span>
-              <Input
-                value={subjects.join(", ")}
-                onChange={(e) =>
-                  setSubjects(
-                    e.target.value
-                      .split(",")
-                      .map((s) => s.trim().toLowerCase())
-                      .filter(Boolean),
-                  )
-                }
-                placeholder="general, mathematics, english"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="space-y-1 text-xs font-semibold">
-              <span>Question Count (10-30)</span>
+              <span>Question Count</span>
               <Input
                 type="number"
                 min={10}
@@ -1247,13 +1274,23 @@ function ClanWarWaitingRoom() {
             </label>
 
             <label className="space-y-1 text-xs font-semibold">
-              <span>Time Per Question (sec)</span>
+              <span>Seconds / Question</span>
               <Input
                 type="number"
                 min={5}
                 max={60}
                 value={secondsPerQuestion}
                 onChange={(e) => setSecondsPerQuestion(Number(e.target.value))}
+                disabled={busy}
+              />
+            </label>
+
+            <label className="space-y-1 text-xs font-semibold">
+              <span>Subject Pool</span>
+              <Input
+                value={customSubjects}
+                onChange={(e) => setCustomSubjects(e.target.value)}
+                placeholder="general, mathematics, english"
                 disabled={busy}
               />
             </label>
@@ -1311,16 +1348,20 @@ function ClanWarWaitingRoom() {
               ) : (
                 <Play className="mr-2 size-4" />
               )}
-              Both Rosters Full & Online — Launch Clan War
+              {busy ? "Launching War…" : "Launch Clan War Clash"}
             </Button>
           ) : (
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin text-primary shrink-0" />
-              {!hasBothClansOnline
-                ? !hasInvitingClanOnline
-                  ? `Waiting for a player from [${challenge.challengerClanTag}] to be online in room`
-                  : `Waiting for a player from [${challenge.targetClanTag}] to be online in room`
-                : "Waiting for rosters to be filled and match launch."}
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {!hasBothClansOnline
+                  ? "At least one player from each clan must be online in this room."
+                  : challengerRoster.length < expectedPlayers || targetRoster.length < expectedPlayers
+                    ? `Waiting for both clans to fill ${expectedPlayers} spot(s) on their roster.`
+                    : "War room is ready."}
+              </span>
+              <span className="font-bold">
+                {challengerRoster.length}/{expectedPlayers} vs {targetRoster.length}/{expectedPlayers}
+              </span>
             </div>
           )}
         </div>
