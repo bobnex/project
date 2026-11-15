@@ -7,6 +7,7 @@ export interface PaymentDetails {
   accountNumber: string;
   accountName: string;
   note: string;
+  freeRegistration: boolean;
 }
 
 export const DEFAULT_PAYMENT: PaymentDetails = {
@@ -15,6 +16,7 @@ export const DEFAULT_PAYMENT: PaymentDetails = {
   accountNumber: "8107528980",
   accountName: "Balogun Daniel Ofuje",
   note: "An admin confirms your transfer before you can start playing.",
+  freeRegistration: false,
 };
 
 /** @deprecated read settings.payment.fee instead */
@@ -35,6 +37,7 @@ export function normalizePayment(raw: Partial<PaymentDetails> | null | undefined
     accountNumber: text(r.accountNumber, DEFAULT_PAYMENT.accountNumber).replace(/\s+/g, ""),
     accountName: text(r.accountName, DEFAULT_PAYMENT.accountName),
     note: typeof r.note === "string" ? r.note.trim() : DEFAULT_PAYMENT.note,
+    freeRegistration: Boolean(r.freeRegistration),
   };
 }
 
