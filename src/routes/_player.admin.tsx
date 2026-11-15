@@ -1,7 +1,7 @@
 import { clearQuestionCache } from "@/lib/question-cache";
 import { CosmeticsAdmin } from "@/components/game/CosmeticsAdmin";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
@@ -10,28 +10,48 @@ import {
   getCountFromServer,
   getDocs,
   limit,
+  onSnapshot,
   orderBy,
   query,
-  where,
+  runTransaction,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from "firebase/firestore";
 import {
+  Activity,
+  AlertTriangle,
+  Award,
+  Ban,
   BookOpen,
   CalendarClock,
   Check,
+  CheckCircle2,
   Clock,
+  Coins,
   Database,
+  Edit2,
+  Flame,
+  GraduationCap,
   Handshake,
   Loader2,
+  Play,
   Plus,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Search,
   Settings2,
   Shield,
   ShieldAlert,
   Sparkles,
+  StopCircle,
+  Swords,
   Trash2,
+  Trophy,
   Upload,
+  UserCheck,
   Users,
   Wallet,
   X,
@@ -44,18 +64,30 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { DEFAULT_RANKED, seasonId, type RankedConfig } from "@/lib/ranked";
 import { getRankedConfig, saveRankedConfig } from "@/lib/ranked-store";
-import { DEFAULT_PAYMENT, normalizePayment, normalizeSponsors, type Sponsor, type PaymentDetails } from "@/lib/payment";
-import { useApp } from "@/lib/app-context";
+import { DEFAULT_PAYMENT, normalizePayment, normalizeSponsors, type PaymentDetails, type Sponsor } from "@/lib/payment";
+import { useApp, type Profile } from "@/lib/app-context";
 import { pageMeta } from "@/lib/meta";
 import { addSubject, listSubjects, updateSubject, type SubjectDoc } from "@/lib/subjects";
+import { PlayerAvatar } from "@/components/game/Avatar";
+import { adminCancelMatch, adminEndMatch } from "@/lib/engine";
+import type { Match } from "@/lib/game-rules";
+import type { ClanDoc } from "@/lib/clans";
+import type { Tournament } from "@/lib/tournament-rules";
 
 export const Route = createFileRoute("/_player/admin")({
-  head: () => pageMeta("Admin Console", "Manage subjects, questions, players, and game settings."),
+  head: () => pageMeta("Admin Console", "Manage players, questions, battles, clans, payments, and settings."),
   component: AdminPage,
 });
 
@@ -65,11 +97,11 @@ interface QuestionDoc {
   question: string;
   options: string[];
   answer: number;
-  explanation?: string | undefined;
-  reported?: boolean | undefined;
+  explanation?: string;
+  reported?: boolean;
 }
 
-interface UserRow {
+interface UserRow extends Partial<Profile> {
   id: string;
   username?: string;
   email?: string;
@@ -80,11 +112,38 @@ interface UserRow {
   rp?: number;
   coins?: number;
   level?: number;
+  xp?: number;
+  battles?: number;
+  wins?: number;
+  losses?: number;
+  draws?: number;
+  streak?: number;
+  bestStreak?: number;
+  status?: "approved" | "pending" | "rejected" | "suspended";
+  emailVerified?: boolean;
+  paymentStatus?: "pending" | "confirmed" | "rejected";
+  paymentSender?: string;
+  paymentRef?: string;
+  paymentAmount?: number;
   createdAt?: number;
+}
+
+interface CoinRequestDoc {
+  id: string;
+  userId: string;
+  username: string;
+  coins: number;
+  amount: number;
+  senderName: string;
+  bankName: string;
+  proofRef: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: number;
 }
 
 function AdminPage() {
   const { user, isAdmin, loading } = useApp();
+  const [activeTab, setActiveTab] = useState("overview");
 
   if (loading) {
     return (
@@ -112,459 +171,279 @@ function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-extrabold sm:text-3xl">Admin Console</h1>
-        <p className="text-muted-foreground text-sm">Review players, adjust ranked rules, and manage battle questions.</p>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-extrabold sm:text-3xl flex items-center gap-2">
+            <Shield className="text-primary size-7" /> Admin Command Center
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Total control over players, questions, battles, clans, payments, and game systems.
+          </p>
+        </div>
+        <Badge variant="outline" className="w-fit border-primary/40 bg-primary/10 text-primary font-mono text-xs">
+          ROOT ACCESS
+        </Badge>
       </div>
 
-      <Tabs defaultValue="questions" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 gap-1 rounded-xl p-1.5 sm:grid-cols-6 h-auto">
-          <TabsTrigger value="questions" className="text-xs py-2">
-            <BookOpen className="size-4 mr-1 shrink-0" />
-            <span>Questions</span>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex flex-wrap h-auto gap-1 p-1.5 bg-muted/60 rounded-xl border border-border/40">
+          <TabsTrigger value="overview" className="gap-1.5 text-xs sm:text-sm">
+            <Activity className="size-4" /> Overview
           </TabsTrigger>
-          <TabsTrigger value="players" className="text-xs py-2">
-            <Users className="size-4 mr-1 shrink-0" />
-            <span>Players</span>
+          <TabsTrigger value="players" className="gap-1.5 text-xs sm:text-sm">
+            <Users className="size-4" /> Players
           </TabsTrigger>
-          <TabsTrigger value="ranked" className="text-xs py-2">
-            <Shield className="size-4 mr-1 shrink-0" />
-            <span>Ranked</span>
+          <TabsTrigger value="payments" className="gap-1.5 text-xs sm:text-sm">
+            <Wallet className="size-4" /> Payments
           </TabsTrigger>
-          <TabsTrigger value="shop" className="text-xs py-2">
-            <Wallet className="size-4 mr-1 shrink-0" />
-            <span>Shop</span>
+          <TabsTrigger value="battles" className="gap-1.5 text-xs sm:text-sm">
+            <Swords className="size-4" /> Battles
           </TabsTrigger>
-          <TabsTrigger value="app" className="text-xs py-2">
-            <Settings2 className="size-4 mr-1 shrink-0" />
-            <span>Settings</span>
+          <TabsTrigger value="clans" className="gap-1.5 text-xs sm:text-sm">
+            <Shield className="size-4" /> Clans
           </TabsTrigger>
-          <TabsTrigger value="sponsors" className="text-xs py-2">
-            <Handshake className="size-4 mr-1 shrink-0" />
-            <span>Sponsors</span>
+          <TabsTrigger value="questions" className="gap-1.5 text-xs sm:text-sm">
+            <BookOpen className="size-4" /> Questions
+          </TabsTrigger>
+          <TabsTrigger value="cbt" className="gap-1.5 text-xs sm:text-sm">
+            <GraduationCap className="size-4" /> CBT Courses
+          </TabsTrigger>
+          <TabsTrigger value="tournaments" className="gap-1.5 text-xs sm:text-sm">
+            <Trophy className="size-4" /> Tournaments
+          </TabsTrigger>
+          <TabsTrigger value="ranked" className="gap-1.5 text-xs sm:text-sm">
+            <CalendarClock className="size-4" /> Ranked
+          </TabsTrigger>
+          <TabsTrigger value="shop" className="gap-1.5 text-xs sm:text-sm">
+            <Coins className="size-4" /> Shop & Themes
+          </TabsTrigger>
+          <TabsTrigger value="app" className="gap-1.5 text-xs sm:text-sm">
+            <Settings2 className="size-4" /> Settings
+          </TabsTrigger>
+          <TabsTrigger value="sponsors" className="gap-1.5 text-xs sm:text-sm">
+            <Handshake className="size-4" /> Sponsors
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="questions"><QuestionsTab /></TabsContent>
-        <TabsContent value="players"><PlayersTab /></TabsContent>
-        <TabsContent value="ranked"><RankedTab /></TabsContent>
-        <TabsContent value="shop"><CosmeticsAdmin /></TabsContent>
-        <TabsContent value="app"><AppSettingsTab /></TabsContent>
-        <TabsContent value="sponsors"><SponsorsTab /></TabsContent>
+        <TabsContent value="overview">
+          <OverviewTab onNavigate={setActiveTab} />
+        </TabsContent>
+
+        <TabsContent value="players">
+          <PlayersTab />
+        </TabsContent>
+
+        <TabsContent value="payments">
+          <PaymentsTab />
+        </TabsContent>
+
+        <TabsContent value="battles">
+          <BattlesTab />
+        </TabsContent>
+
+        <TabsContent value="clans">
+          <ClansTab />
+        </TabsContent>
+
+        <TabsContent value="questions">
+          <QuestionsTab />
+        </TabsContent>
+
+        <TabsContent value="cbt">
+          <CbtCoursesTab />
+        </TabsContent>
+
+        <TabsContent value="tournaments">
+          <TournamentsTab />
+        </TabsContent>
+
+        <TabsContent value="ranked">
+          <RankedTab />
+        </TabsContent>
+
+        <TabsContent value="shop">
+          <CosmeticsAdmin />
+        </TabsContent>
+
+        <TabsContent value="app">
+          <AppSettingsTab />
+        </TabsContent>
+
+        <TabsContent value="sponsors">
+          <SponsorsTab />
+        </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function QuestionsTab() {
+/* =========================================================================
+ * 1. OVERVIEW TAB
+ * ========================================================================= */
+function OverviewTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
   const { fb } = useApp();
-  const [subjects, setSubjects] = useState<SubjectDoc[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<string>("all");
-  const [questions, setQuestions] = useState<QuestionDoc[]>([]);
+  const [stats, setStats] = useState({
+    players: 0,
+    questions: 0,
+    matches: 0,
+    clans: 0,
+    tournaments: 0,
+    pendingPayments: 0,
+    pendingCoinRequests: 0,
+    activeMatches: 0,
+  });
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [showImport, setShowImport] = useState(false);
-  const [editing, setEditing] = useState<QuestionDoc | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [newSubject, setNewSubject] = useState("");
-  const [totalCount, setTotalCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!fb) return;
-    listSubjects(fb.db).then(setSubjects).catch(() => {});
-    getCountFromServer(collection(fb.db, "questions"))
-      .then((c) => setTotalCount(c.data().count))
-      .catch(() => {});
+    let alive = true;
+
+    async function loadStats() {
+      if (!fb) return;
+      const count = (q: Parameters<typeof getCountFromServer>[0]) =>
+        getCountFromServer(q).then((s) => s.data().count).catch(() => 0);
+
+      const usersRef = collection(fb.db, "users");
+      const questionsRef = collection(fb.db, "questions");
+      const matchesRef = collection(fb.db, "matches");
+      const clansRef = collection(fb.db, "clans");
+      const tournamentsRef = collection(fb.db, "tournaments");
+      const coinRequestsRef = collection(fb.db, "coin_requests");
+
+      const [pCount, qCount, mCount, cCount, tCount, pendPay, pendCoin, activeM] = await Promise.all([
+        count(usersRef),
+        count(questionsRef),
+        count(matchesRef),
+        count(clansRef),
+        count(tournamentsRef),
+        count(query(usersRef, where("paymentStatus", "==", "pending"))),
+        count(query(coinRequestsRef, where("status", "==", "pending"))),
+        count(query(matchesRef, where("status", "in", ["waiting", "countdown", "active"]))),
+      ]);
+
+      if (alive) {
+        setStats({
+          players: pCount,
+          questions: qCount,
+          matches: mCount,
+          clans: cCount,
+          tournaments: tCount,
+          pendingPayments: pendPay,
+          pendingCoinRequests: pendCoin,
+          activeMatches: activeM,
+        });
+        setLoading(false);
+      }
+    }
+
+    loadStats();
+    return () => { alive = false; };
   }, [fb]);
 
-  useEffect(() => {
-    if (!fb) return;
-    setLoading(true);
-    const q = selectedCourse === "all"
-      ? query(collection(fb.db, "questions"), limit(100))
-      : query(collection(fb.db, "questions"), where("course", "==", selectedCourse), limit(100));
-
-    getDocs(q)
-      .then((snap) => {
-        setQuestions(
-          snap.docs.map((d) => {
-            const raw = (d.data() ?? {}) as Record<string, any>;
-            return {
-              id: d.id,
-              course: String(raw.course ?? raw.subject ?? "General"),
-              question: String(raw.question ?? raw.text ?? raw.prompt ?? ""),
-              options: Array.isArray(raw.options) ? raw.options.map((o: unknown) => String(o ?? "")) : [],
-              answer: typeof raw.answer === "number" ? raw.answer : (typeof raw.correctIndex === "number" ? raw.correctIndex : 0),
-              explanation: raw.explanation ? String(raw.explanation) : undefined,
-              reported: Boolean(raw.reported),
-            };
-          })
-        );
-      })
-      .catch((e) => {
-        toast.error("Failed to load questions: " + (e as Error).message);
-      })
-      .finally(() => setLoading(false));
-  }, [fb, selectedCourse]);
-
-  const qTerm = (search ?? "").trim().toLowerCase();
-  const filtered = questions.filter((q) => {
-    if (!qTerm) return true;
-    const questionText = String(q.question ?? "").toLowerCase();
-    const courseText = String(q.course ?? "").toLowerCase();
-    return questionText.includes(qTerm) || courseText.includes(qTerm);
-  });
-
-  async function handleDelete(id: string) {
-    if (!fb || !confirm("Delete this question?")) return;
-    try {
-      await deleteDoc(doc(fb.db, "questions", id));
-      setQuestions((cur) => cur.filter((q) => q.id !== id));
-      clearQuestionCache();
-      toast.success("Question deleted");
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-
-  async function handleAddSubject() {
-    if (!fb || !newSubject.trim()) return;
-    try {
-      const added = await addSubject(fb.db, newSubject.trim());
-      setSubjects((s) => (s.some((x) => x.id === added.id) ? s : [...s, added]));
-      setNewSubject("");
-      toast.success(`Subject "${added.name}" added`);
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="surface-card flex flex-wrap items-center justify-between gap-3 p-4">
-        <div className="flex items-center gap-2">
-          <Database className="text-primary size-5" />
-          <div>
-            <div className="font-semibold">Question Repository</div>
-            <div className="text-muted-foreground text-xs">
-              {totalCount !== null ? `${totalCount} total questions in database` : "Browse and manage questions"}
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Total Players" value={stats.players} icon={Users} color="text-sky-500" onClick={() => onNavigate("players")} />
+        <StatCard label="Questions Bank" value={stats.questions} icon={BookOpen} color="text-amber-500" onClick={() => onNavigate("questions")} />
+        <StatCard label="Live Battles" value={stats.activeMatches} icon={Swords} color="text-emerald-500" hint={`of ${stats.matches} total`} onClick={() => onNavigate("battles")} />
+        <StatCard label="Active Clans" value={stats.clans} icon={Shield} color="text-purple-500" onClick={() => onNavigate("clans")} />
+        <StatCard label="Registration Approvals" value={stats.pendingPayments} icon={Wallet} color="text-rose-500" alert={stats.pendingPayments > 0} onClick={() => onNavigate("payments")} />
+        <StatCard label="Coin Top-up Requests" value={stats.pendingCoinRequests} icon={Coins} color="text-yellow-500" alert={stats.pendingCoinRequests > 0} onClick={() => onNavigate("payments")} />
+        <StatCard label="Tournaments" value={stats.tournaments} icon={Trophy} color="text-indigo-500" onClick={() => onNavigate("tournaments")} />
+        <StatCard label="CBT Courses" value="Active" icon={GraduationCap} color="text-teal-500" onClick={() => onNavigate("cbt")} />
+      </div>
+
+      <div className="surface-card p-5 space-y-4">
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <Activity className="size-5 text-primary" /> Quick Admin Actions
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <Button variant="outline" className="justify-start gap-2 h-auto py-3 text-left" onClick={() => onNavigate("players")}>
+            <Users className="size-4 text-sky-500" />
+            <div>
+              <div className="font-medium text-xs">Edit Players</div>
+              <div className="text-[10px] text-muted-foreground">Coins, SR, RP, Bans</div>
             </div>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-            <Upload className="size-4" /> Bulk import
           </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-4" /> Add question
-          </Button>
-        </div>
-      </div>
-
-      <div className="surface-card space-y-3 p-4">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant={selectedCourse === "all" ? "default" : "outline"}
-            onClick={() => setSelectedCourse("all")}
-          >
-            All subjects
-          </Button>
-          {subjects.map((s) => (
-            <Button
-              key={s.id}
-              size="sm"
-              variant={selectedCourse === s.name ? "default" : "outline"}
-              onClick={() => setSelectedCourse(s.name)}
-            >
-              {s.name}
-            </Button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-2 border-t">
-          <Input
-            placeholder="Add new subject..."
-            value={newSubject}
-            onChange={(e) => setNewSubject(e.target.value)}
-            className="max-w-xs"
-            onKeyDown={(e) => e.key === "Enter" && handleAddSubject()}
-          />
-          <Button size="sm" variant="outline" onClick={handleAddSubject}>
-            <Plus className="size-4" /> Add subject
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Input
-          placeholder="Search loaded questions..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-md"
-        />
-      </div>
-
-      {loading ? (
-        <div className="surface-card flex items-center justify-center p-12 text-sm text-muted-foreground">
-          <Loader2 className="mr-2 size-4 animate-spin" /> Loading questions...
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="surface-card p-12 text-center text-sm text-muted-foreground">
-          No questions found. Click "Add question" or "Bulk import" to create some.
-        </div>
-      ) : (
-        <div className="surface-card divide-y">
-          {filtered.map((q) => (
-            <div key={q.id} className="flex items-start justify-between gap-4 p-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-xs">{q.course}</Badge>
-                  {q.reported && <Badge variant="destructive" className="text-xs">Reported</Badge>}
-                </div>
-                <p className="font-medium text-sm">{q.question}</p>
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-1">
-                  {(q.options || []).map((opt, i) => (
-                    <div key={i} className={q.answer === i ? "text-primary font-bold" : ""}>
-                      {String.fromCharCode(65 + i)}. {opt} {q.answer === i ? "✓" : ""}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button size="sm" variant="ghost" onClick={() => setEditing(q)}>Edit</Button>
-                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDelete(q.id)}>
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
+          <Button variant="outline" className="justify-start gap-2 h-auto py-3 text-left" onClick={() => onNavigate("questions")}>
+            <Upload className="size-4 text-amber-500" />
+            <div>
+              <div className="font-medium text-xs">Add / Import Questions</div>
+              <div className="text-[10px] text-muted-foreground">Bulk JSON import</div>
             </div>
-          ))}
+          </Button>
+          <Button variant="outline" className="justify-start gap-2 h-auto py-3 text-left" onClick={() => onNavigate("payments")}>
+            <Wallet className="size-4 text-emerald-500" />
+            <div>
+              <div className="font-medium text-xs">Pending Approvals</div>
+              <div className="text-[10px] text-muted-foreground">Confirm bank receipts</div>
+            </div>
+          </Button>
+          <Button variant="outline" className="justify-start gap-2 h-auto py-3 text-left" onClick={() => onNavigate("clans")}>
+            <Shield className="size-4 text-purple-500" />
+            <div>
+              <div className="font-medium text-xs">Clan Oversight</div>
+              <div className="text-[10px] text-muted-foreground">CP, Levels, Disband</div>
+            </div>
+          </Button>
         </div>
-      )}
-
-      {showImport && <ImportDialog onClose={() => setShowImport(false)} onImported={() => setSelectedCourse("all")} />}
-      {creating && <QuestionEditorDialog course={selectedCourse !== "all" ? selectedCourse : ""} onClose={() => setCreating(false)} onSaved={(q) => setQuestions((cur) => [q, ...cur])} />}
-      {editing && <QuestionEditorDialog question={editing} onClose={() => setEditing(null)} onSaved={(q) => setQuestions((cur) => cur.map((x) => x.id === q.id ? q : x))} />}
+      </div>
     </div>
   );
 }
 
-function QuestionEditorDialog({ question, course, onClose, onSaved }: { question?: QuestionDoc; course?: string; onClose: () => void; onSaved: (q: QuestionDoc) => void }) {
-  const { fb } = useApp();
-  const [c, setC] = useState(question?.course ?? course ?? "");
-  const [text, setText] = useState(question?.question ?? "");
-  const [opts, setOpts] = useState<string[]>(
-    Array.isArray(question?.options) && question.options.length === 4
-      ? question.options
-      : ["", "", "", ""]
-  );
-  const [ans, setAns] = useState(question?.answer ?? 0);
-  const [exp, setExp] = useState(question?.explanation ?? "");
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    if (!fb) return;
-    if (!c.trim()) return toast.error("Course/subject is required");
-    if (!text.trim()) return toast.error("Question text is required");
-    if (opts.some((o) => !o.trim())) return toast.error("All 4 options must be filled");
-
-    setSaving(true);
-    try {
-      const trimmedCourse = c.trim();
-      const trimmedQuestion = text.trim();
-      const trimmedExplanation = exp.trim();
-
-      const data: Record<string, any> = {
-        course: trimmedCourse,
-        subject: trimmedCourse,
-        question: trimmedQuestion,
-        text: trimmedQuestion,
-        options: opts.map((o) => o.trim()),
-        answer: ans,
-        correctIndex: ans,
-        reported: false,
-        updatedAt: Date.now(),
-      };
-      if (trimmedExplanation) {
-        data.explanation = trimmedExplanation;
-      }
-
-      if (question?.id) {
-        await updateDoc(doc(fb.db, "questions", question.id), data);
-        onSaved({
-          id: question.id,
-          course: trimmedCourse,
-          question: trimmedQuestion,
-          options: data.options,
-          answer: ans,
-          explanation: trimmedExplanation || undefined,
-          reported: false,
-        });
-        toast.success("Question updated");
-      } else {
-        const ref = await addDoc(collection(fb.db, "questions"), {
-          ...data,
-          active: true,
-          createdAt: Date.now(),
-        });
-        onSaved({
-          id: ref.id,
-          course: trimmedCourse,
-          question: trimmedQuestion,
-          options: data.options,
-          answer: ans,
-          explanation: trimmedExplanation || undefined,
-          reported: false,
-        });
-        toast.success("Question created");
-      }
-      clearQuestionCache();
-      onClose();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+  hint,
+  alert,
+  onClick,
+}: {
+  label: string;
+  value: number | string;
+  icon: typeof Users;
+  color?: string;
+  hint?: string;
+  alert?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{question ? "Edit Question" : "New Question"}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label>Course / Subject</Label>
-            <Input value={c} onChange={(e) => setC(e.target.value)} placeholder="e.g. Mathematics" />
-          </div>
-          <div className="space-y-1">
-            <Label>Question</Label>
-            <Textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Type the question..." />
-          </div>
-          <div className="space-y-2">
-            <Label>Options (select the correct radio)</Label>
-            {opts.map((opt, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="correct-answer"
-                  checked={ans === i}
-                  onChange={() => setAns(i)}
-                  className="size-4 accent-primary"
-                />
-                <Input
-                  value={opt}
-                  onChange={(e) => {
-                    const next = [...opts];
-                    next[i] = e.target.value;
-                    setOpts(next);
-                  }}
-                  placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="space-y-1">
-            <Label>Explanation (optional)</Label>
-            <Textarea rows={2} value={exp} onChange={(e) => setExp(e.target.value)} placeholder="Why is this the answer?" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : "Save"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div
+      onClick={onClick}
+      className={`surface-card p-4 transition-all duration-150 cursor-pointer hover:border-primary/50 relative overflow-hidden ${
+        alert ? "border-amber-500/50 bg-amber-500/5" : ""
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground font-medium">{label}</span>
+        <Icon className={`size-4 ${color ?? "text-muted-foreground"}`} />
+      </div>
+      <div className="mt-2 text-2xl font-black font-display">{value}</div>
+      {hint && <div className="text-[11px] text-muted-foreground mt-0.5">{hint}</div>}
+      {alert && (
+        <span className="absolute top-2 right-2 flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+        </span>
+      )}
+    </div>
   );
 }
 
-function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
-  const { fb } = useApp();
-  const [raw, setRaw] = useState("");
-  const [course, setCourse] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function handleImport() {
-    if (!fb) return;
-    try {
-      const { questions, errors } = parseQuestionImport(raw);
-      if (errors.length > 0 && questions.length === 0) return toast.error(errors[0]);
-      if (questions.length === 0) return toast.error("No valid questions found in payload");
-      setBusy(true);
-
-      const batch = writeBatch(fb.db);
-      for (const q of questions) {
-        const ref = doc(collection(fb.db, "questions"));
-        const subjectName = (course.trim() || q.subject || "General").trim();
-        batch.set(ref, {
-          course: subjectName,
-          subject: subjectName,
-          topic: q.topic || "",
-          question: q.text,
-          text: q.text,
-          options: q.options,
-          answer: q.correctIndex,
-          correctIndex: q.correctIndex,
-          explanation: null,
-          reported: false,
-          active: true,
-          createdAt: Date.now(),
-        });
-      }
-      await batch.commit();
-      clearQuestionCache();
-      toast.success(`Imported ${questions.length} questions successfully`);
-      onImported();
-      onClose();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Bulk Import Questions</DialogTitle>
-          <DialogDescription>Paste a JSON array of questions.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label>Default subject (if not specified in rows)</Label>
-            <Input value={course} onChange={(e) => setCourse(e.target.value)} placeholder="e.g. Chemistry" />
-          </div>
-          <div className="space-y-1">
-            <Label>Questions JSON</Label>
-            <Textarea
-              rows={10}
-              className="font-mono text-xs"
-              placeholder={IMPORT_EXAMPLE}
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={handleImport} disabled={busy || !raw.trim()}>
-            {busy ? <Loader2 className="animate-spin" /> : "Import questions"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
+/* =========================================================================
+ * 2. PLAYERS TAB (COMPLETE CONTROL & PERMISSIONS)
+ * ========================================================================= */
 function PlayersTab() {
   const { fb } = useApp();
   const [players, setPlayers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [editingPlayer, setEditingPlayer] = useState<UserRow | null>(null);
 
-  useEffect(() => {
+  function reloadPlayers() {
     if (!fb) return;
     setLoading(true);
     getDocs(query(collection(fb.db, "users"), orderBy("createdAt", "desc"), limit(100)))
@@ -579,7 +458,23 @@ function PlayersTab() {
           .catch((err) => toast.error("Failed to load players: " + (err as Error).message));
       })
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reloadPlayers();
   }, [fb]);
+
+  async function quickCoinGrant(p: UserRow, delta: number) {
+    if (!fb) return;
+    const next = Math.max(0, (p.coins ?? 0) + delta);
+    try {
+      await updateDoc(doc(fb.db, "users", p.id), { coins: next });
+      setPlayers((cur) => cur.map((x) => (x.id === p.id ? { ...x, coins: next } : x)));
+      toast.success(`Granted ${delta > 0 ? "+" : ""}${delta} coins to ${p.username ?? p.id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
 
   async function toggleBan(p: UserRow) {
     if (!fb) return;
@@ -605,8 +500,64 @@ function PlayersTab() {
     }
   }
 
+  async function toggleEmailVerify(p: UserRow) {
+    if (!fb) return;
+    const next = !p.emailVerified;
+    try {
+      await updateDoc(doc(fb.db, "users", p.id), { emailVerified: next });
+      setPlayers((cur) => cur.map((x) => (x.id === p.id ? { ...x, emailVerified: next } : x)));
+      toast.success(next ? "Marked email as verified" : "Marked email as unverified");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function resetPlayerStats(p: UserRow) {
+    if (!fb) return;
+    if (!confirm(`Reset all match scores, rating, RP, and streaks for ${p.username ?? p.id} to defaults?`)) return;
+    try {
+      await updateDoc(doc(fb.db, "users", p.id), {
+        rating: 1200,
+        rp: 0,
+        battles: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        streak: 0,
+        bestStreak: 0,
+      });
+      setPlayers((cur) =>
+        cur.map((x) =>
+          x.id === p.id
+            ? { ...x, rating: 1200, rp: 0, battles: 0, wins: 0, losses: 0, draws: 0, streak: 0, bestStreak: 0 }
+            : x
+        )
+      );
+      toast.success(`Stats reset for ${p.username ?? p.id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function deletePlayer(p: UserRow) {
+    if (!fb) return;
+    if (!confirm(`PERMANENTLY delete user ${p.username ?? p.id}? This cannot be undone.`)) return;
+    try {
+      await deleteDoc(doc(fb.db, "users", p.id));
+      setPlayers((cur) => cur.filter((x) => x.id !== p.id));
+      toast.success(`Deleted user ${p.username ?? p.id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   const pTerm = (search ?? "").trim().toLowerCase();
   const filtered = players.filter((p) => {
+    if (statusFilter === "banned" && !p.banned) return false;
+    if (statusFilter === "suspended" && !p.rankedSuspended) return false;
+    if (statusFilter === "unverified" && p.emailVerified) return false;
+    if (statusFilter === "pending_pay" && p.paymentStatus !== "pending") return false;
+
     if (!pTerm) return true;
     const u = String(p.username ?? "").toLowerCase();
     const e = String(p.email ?? "").toLowerCase();
@@ -616,52 +567,1014 @@ function PlayersTab() {
 
   return (
     <div className="space-y-4">
-      <Input
-        placeholder="Search players by username, email, or user ID..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="max-w-md"
-      />
+      <div className="flex flex-col sm:flex-row gap-2 justify-between">
+        <div className="flex flex-1 gap-2">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by username, email, or UID..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="Filter status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Players ({players.length})</SelectItem>
+              <SelectItem value="banned">Banned</SelectItem>
+              <SelectItem value="suspended">Ranked Suspended</SelectItem>
+              <SelectItem value="unverified">Unverified Email</SelectItem>
+              <SelectItem value="pending_pay">Pending Payment</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" onClick={reloadPlayers} className="gap-1.5 self-start sm:self-auto">
+          <RefreshCw className="size-3.5" /> Refresh
+        </Button>
+      </div>
 
       {loading ? (
         <div className="surface-card flex items-center justify-center p-12 text-sm text-muted-foreground">
-          <Loader2 className="mr-2 size-4 animate-spin" /> Loading players...
+          <Loader2 className="mr-2 size-5 animate-spin text-primary" /> Loading players directory…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="surface-card p-12 text-center text-sm text-muted-foreground">No players match the search.</div>
+        <div className="surface-card p-8 text-center text-sm text-muted-foreground">
+          No players match current filter.
+        </div>
       ) : (
-        <div className="surface-card divide-y">
+        <div className="surface-card divide-y border border-border/40">
           {filtered.map((p) => (
-            <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm">{p.username ?? "Anonymous"}</span>
-                  {p.role === "admin" && <Badge variant="secondary" className="text-xs">Admin</Badge>}
-                  {p.banned && <Badge variant="destructive" className="text-xs">Banned</Badge>}
-                  {p.rankedSuspended && <Badge variant="outline" className="text-xs border-destructive text-destructive">Ranked suspended</Badge>}
-                </div>
-                <div className="text-muted-foreground text-xs font-mono">{p.email ?? p.id}</div>
-                <div className="flex items-center gap-3 pt-1 text-xs text-muted-foreground">
-                  <span>Rating: {p.rating ?? 0}</span>
-                  <span>RP: {p.rp ?? 0}</span>
-                  <span>Coins: {p.coins ?? 0}</span>
-                  <span>Level: {p.level ?? 1}</span>
+            <div key={p.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <PlayerAvatar name={p.username ?? "Player"} size={42} />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-base truncate">{p.username ?? "Anonymous"}</span>
+                    {p.role === "admin" && <Badge variant="destructive" className="text-[10px] py-0">ADMIN</Badge>}
+                    {p.banned && <Badge variant="destructive" className="text-[10px] py-0">BANNED</Badge>}
+                    {p.rankedSuspended && <Badge variant="outline" className="border-amber-500 text-amber-500 text-[10px] py-0">RANK SUSPENDED</Badge>}
+                    {p.paymentStatus === "pending" && <Badge variant="outline" className="border-yellow-500 text-yellow-500 text-[10px] py-0">PAYMENT PENDING</Badge>}
+                    <span className="text-[11px] font-mono text-muted-foreground">{p.id}</span>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground truncate mt-0.5">
+                    {p.email || "No email"} · Level {p.level ?? 1} ({p.xp ?? 0} XP)
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 text-xs mt-2 text-muted-foreground">
+                    <span className="font-semibold text-amber-500 flex items-center gap-1">
+                      <Coins className="size-3.5" /> {p.coins ?? 0} coins
+                    </span>
+                    <span>Rating: <strong className="text-foreground">{p.rating ?? 1200} SR</strong></span>
+                    <span>RP: <strong className="text-foreground">{p.rp ?? 0}</strong></span>
+                    <span>Record: {p.wins ?? 0}W / {p.losses ?? 0}L / {p.draws ?? 0}D</span>
+                    <span>Streak: {p.streak ?? 0} (Best: {p.bestStreak ?? 0})</span>
+                    <span>Status: <strong className="text-foreground capitalize">{p.status ?? "approved"}</strong></span>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant={p.rankedSuspended ? "default" : "outline"}
-                  onClick={() => toggleRankedSuspend(p)}
-                >
-                  {p.rankedSuspended ? "Unsuspend Ranked" : "Suspend Ranked"}
+
+              {/* Quick Admin Actions */}
+              <div className="flex items-center flex-wrap gap-1.5 self-end md:self-center">
+                <Button size="sm" variant="outline" onClick={() => quickCoinGrant(p, 100)} title="Add 100 coins" className="text-xs">
+                  +100 🪙
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => quickCoinGrant(p, 1000)} title="Add 1,000 coins" className="text-xs">
+                  +1K 🪙
+                </Button>
+                <Button size="sm" variant="default" onClick={() => setEditingPlayer(p)} className="gap-1 text-xs">
+                  <Edit2 className="size-3.5" /> Edit Full
                 </Button>
                 <Button
                   size="sm"
-                  variant={p.banned ? "secondary" : "destructive"}
+                  variant={p.banned ? "outline" : "ghost"}
                   onClick={() => toggleBan(p)}
+                  className={`text-xs ${p.banned ? "text-emerald-500 border-emerald-500/50" : "text-destructive hover:bg-destructive/10"}`}
                 >
-                  {p.banned ? "Unban" : "Ban"}
+                  <Ban className="size-3.5 mr-1" /> {p.banned ? "Unban" : "Ban"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => resetPlayerStats(p)}
+                  title="Reset score and ratings"
+                  className="text-xs text-muted-foreground hover:text-amber-500"
+                >
+                  <RotateCcw className="size-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => deletePlayer(p)}
+                  title="Delete user"
+                  className="text-xs text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Complete Player Edit Dialog */}
+      {editingPlayer && (
+        <PlayerEditDialog
+          player={editingPlayer}
+          onClose={() => setEditingPlayer(null)}
+          onSaved={(updated) => {
+            setPlayers((cur) => cur.map((x) => (x.id === updated.id ? updated : x)));
+            setEditingPlayer(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlayerEditDialog({
+  player,
+  onClose,
+  onSaved,
+}: {
+  player: UserRow;
+  onClose: () => void;
+  onSaved: (u: UserRow) => void;
+}) {
+  const { fb } = useApp();
+  const [form, setForm] = useState<UserRow>({ ...player });
+  const [saving, setSaving] = useState(false);
+
+  const setF = (k: keyof UserRow, val: unknown) => setForm((cur) => ({ ...cur, [k]: val }));
+
+  async function handleSave() {
+    if (!fb) return;
+    setSaving(true);
+    try {
+      const updates: Record<string, unknown> = {
+        username: form.username ?? "",
+        email: form.email ?? "",
+        role: form.role ?? "player",
+        status: form.status ?? "approved",
+        coins: Number(form.coins) || 0,
+        rating: Number(form.rating) || 1200,
+        rp: Number(form.rp) || 0,
+        level: Number(form.level) || 1,
+        xp: Number(form.xp) || 0,
+        battles: Number(form.battles) || 0,
+        wins: Number(form.wins) || 0,
+        losses: Number(form.losses) || 0,
+        draws: Number(form.draws) || 0,
+        streak: Number(form.streak) || 0,
+        bestStreak: Number(form.bestStreak) || 0,
+        banned: Boolean(form.banned),
+        rankedSuspended: Boolean(form.rankedSuspended),
+        emailVerified: Boolean(form.emailVerified),
+        paymentStatus: form.paymentStatus ?? "confirmed",
+        paymentAmount: Number(form.paymentAmount) || 0,
+        paymentSender: form.paymentSender ?? "",
+        paymentRef: form.paymentRef ?? "",
+      };
+
+      await updateDoc(doc(fb.db, "users", player.id), updates);
+      toast.success(`Saved all profile modifications for ${form.username || player.id}`);
+      onSaved({ ...form, ...updates });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit2 className="size-5 text-primary" /> Full Control: {player.username ?? player.id}
+          </DialogTitle>
+          <DialogDescription>
+            Admin permission override. You can adjust wallet balances, ranks, roles, and safety flags.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2 text-xs">
+          {/* Identity & Role */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <Label>Username</Label>
+              <Input value={form.username ?? ""} onChange={(e) => setF("username", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Email</Label>
+              <Input value={form.email ?? ""} onChange={(e) => setF("email", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>System Role</Label>
+              <Select value={form.role ?? "player"} onValueChange={(v) => setF("role", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="player">Player</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Economy & Rank */}
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-3">
+            <div className="font-semibold text-foreground text-sm flex items-center gap-1.5">
+              <Coins className="size-4 text-amber-500" /> Wallet & Competitive Standing
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="space-y-1">
+                <Label>Coins Balance 🪙</Label>
+                <Input type="number" value={form.coins ?? 0} onChange={(e) => setF("coins", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Rating (SR)</Label>
+                <Input type="number" value={form.rating ?? 1200} onChange={(e) => setF("rating", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Ranked Points (RP)</Label>
+                <Input type="number" value={form.rp ?? 0} onChange={(e) => setF("rp", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Level</Label>
+                <Input type="number" value={form.level ?? 1} onChange={(e) => setF("level", Number(e.target.value))} />
+              </div>
+            </div>
+          </div>
+
+          {/* Match Statistics */}
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-3">
+            <div className="font-semibold text-foreground text-sm flex items-center gap-1.5">
+              <Swords className="size-4 text-emerald-500" /> Match Records & Streaks
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              <div className="space-y-1">
+                <Label>Battles</Label>
+                <Input type="number" value={form.battles ?? 0} onChange={(e) => setF("battles", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Wins</Label>
+                <Input type="number" value={form.wins ?? 0} onChange={(e) => setF("wins", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Losses</Label>
+                <Input type="number" value={form.losses ?? 0} onChange={(e) => setF("losses", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Draws</Label>
+                <Input type="number" value={form.draws ?? 0} onChange={(e) => setF("draws", Number(e.target.value))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Win Streak</Label>
+                <Input type="number" value={form.streak ?? 0} onChange={(e) => setF("streak", Number(e.target.value))} />
+              </div>
+            </div>
+          </div>
+
+          {/* Account Status & Safety Flags */}
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-3">
+            <div className="font-semibold text-foreground text-sm flex items-center gap-1.5">
+              <Shield className="size-4 text-primary" /> Status & Safety Flags
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Account Approval Status</Label>
+                <Select value={form.status ?? "approved"} onValueChange={(v) => setF("status", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Registration Payment Status</Label>
+                <Select value={form.paymentStatus ?? "confirmed"} onValueChange={(v) => setF("paymentStatus", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-6 pt-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={Boolean(form.banned)} onCheckedChange={(v) => setF("banned", v)} />
+                <span className="font-medium text-destructive">Banned from platform</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={Boolean(form.rankedSuspended)} onCheckedChange={(v) => setF("rankedSuspended", v)} />
+                <span className="font-medium text-amber-500">Ranked Matchmaking Suspended</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={Boolean(form.emailVerified)} onCheckedChange={(v) => setF("emailVerified", v)} />
+                <span className="font-medium text-emerald-500">Email Verified</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save All Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* =========================================================================
+ * 3. PAYMENTS & APPROVALS TAB
+ * ========================================================================= */
+function PaymentsTab() {
+  const { fb } = useApp();
+  const [pendingUsers, setPendingUsers] = useState<UserRow[]>([]);
+  const [coinRequests, setCoinRequests] = useState<CoinRequestDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!fb) return;
+
+    // Listen for pending user registrations
+    const unsubUsers = onSnapshot(
+      query(collection(fb.db, "users"), where("paymentStatus", "==", "pending"), limit(50)),
+      (s) => {
+        setPendingUsers(s.docs.map((d) => ({ id: d.id, ...(d.data() as UserRow) })));
+      },
+      () => {}
+    );
+
+    // Listen for pending coin top-up requests
+    const unsubCoins = onSnapshot(
+      query(collection(fb.db, "coin_requests"), where("status", "==", "pending"), limit(50)),
+      (s) => {
+        setCoinRequests(s.docs.map((d) => ({ id: d.id, ...(d.data() as CoinRequestDoc) })));
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+
+    return () => {
+      unsubUsers();
+      unsubCoins();
+    };
+  }, [fb]);
+
+  async function approveUserPayment(u: UserRow) {
+    if (!fb) return;
+    try {
+      await updateDoc(doc(fb.db, "users", u.id), {
+        paymentStatus: "confirmed",
+        status: "approved",
+      });
+      toast.success(`Approved payment and unlocked account for ${u.username ?? u.id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function rejectUserPayment(u: UserRow) {
+    if (!fb) return;
+    try {
+      await updateDoc(doc(fb.db, "users", u.id), {
+        paymentStatus: "rejected",
+        status: "rejected",
+      });
+      toast.success(`Payment rejected for ${u.username ?? u.id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function approveCoinRequest(req: CoinRequestDoc) {
+    if (!fb) return;
+    try {
+      const userRef = doc(fb.db, "users", req.userId);
+      const reqRef = doc(fb.db, "coin_requests", req.id);
+
+      await runTransaction(fb.db, async (tx) => {
+        const uSnap = await tx.get(userRef);
+        const currentCoins = uSnap.exists() ? (Number(uSnap.data().coins) || 0) : 0;
+        tx.update(userRef, { coins: currentCoins + req.coins });
+        tx.update(reqRef, { status: "approved", approvedAt: Date.now() });
+      });
+
+      toast.success(`Credited +${req.coins} coins to ${req.username}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function rejectCoinRequest(req: CoinRequestDoc) {
+    if (!fb) return;
+    try {
+      await updateDoc(doc(fb.db, "coin_requests", req.id), { status: "rejected" });
+      toast.success(`Rejected coin top-up request for ${req.username}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <PaymentDetailsCard />
+
+      {/* Registration Payments */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-base flex items-center gap-2">
+            <Wallet className="size-5 text-primary" /> Pending Registration Payments ({pendingUsers.length})
+          </h3>
+        </div>
+
+        {pendingUsers.length === 0 ? (
+          <div className="surface-card p-6 text-center text-sm text-muted-foreground">
+            No pending registration payments. All clear!
+          </div>
+        ) : (
+          <div className="surface-card divide-y">
+            {pendingUsers.map((u) => (
+              <div key={u.id} className="p-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <PlayerAvatar name={u.username ?? "User"} size={36} />
+                  <div>
+                    <div className="font-semibold text-sm">{u.username ?? "Anonymous"}</div>
+                    <div className="text-xs text-muted-foreground">{u.email}</div>
+                    <div className="text-[11px] text-amber-500 font-mono mt-0.5">
+                      Sender: {u.paymentSender || "—"} · Ref: {u.paymentRef || "—"} · Amount: ₦{u.paymentAmount || "—"}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="default" onClick={() => approveUserPayment(u)} className="gap-1 bg-emerald-600 hover:bg-emerald-700">
+                    <Check className="size-3.5" /> Approve & Unlock
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => rejectUserPayment(u)} className="text-destructive hover:bg-destructive/10">
+                    <X className="size-3.5" /> Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Coin Shop Requests */}
+      <div className="space-y-3">
+        <h3 className="font-bold text-base flex items-center gap-2">
+          <Coins className="size-5 text-amber-500" /> Pending Coin Top-ups ({coinRequests.length})
+        </h3>
+
+        {coinRequests.length === 0 ? (
+          <div className="surface-card p-6 text-center text-sm text-muted-foreground">
+            No pending coin requests.
+          </div>
+        ) : (
+          <div className="surface-card divide-y">
+            {coinRequests.map((req) => (
+              <div key={req.id} className="p-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-sm flex items-center gap-2">
+                    <span>{req.username}</span>
+                    <Badge variant="secondary" className="text-amber-500 font-bold">
+                      +{req.coins} Coins
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">₦{req.amount}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5 font-mono">
+                    Bank: {req.bankName} · Sender: {req.senderName} · Ref: {req.proofRef}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="default" onClick={() => approveCoinRequest(req)} className="gap-1 bg-emerald-600 hover:bg-emerald-700">
+                    <Check className="size-3.5" /> Credit Coins
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => rejectCoinRequest(req)} className="text-destructive hover:bg-destructive/10">
+                    <X className="size-3.5" /> Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+ * 4. BATTLES TAB (LIVE INSPECTOR & ACTIONS)
+ * ========================================================================= */
+const MODE_LABEL: Record<string, string> = {
+  classic: "1v1 Classic",
+  rush: "Battle Royale (Rush)",
+  duo: "2v2 Duo",
+};
+
+function BattlesTab() {
+  const { fb } = useApp();
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [filter, setFilter] = useState<"all" | "live" | "completed">("live");
+
+  useEffect(() => {
+    if (!fb) return;
+    return onSnapshot(
+      query(collection(fb.db, "matches"), orderBy("createdAt", "desc"), limit(40)),
+      (s) => {
+        setMatches(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Match, "id">) })));
+      },
+      () => {}
+    );
+  }, [fb]);
+
+  async function cancelMatch(id: string) {
+    if (!fb) return;
+    if (!confirm("Close and abort this battle for all players?")) return;
+    try {
+      await adminCancelMatch(fb.db, id);
+      toast.success("Battle cancelled and closed");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function endMatch(id: string) {
+    if (!fb) return;
+    if (!confirm("End this battle immediately? Current scores will determine the winner.")) return;
+    try {
+      await adminEndMatch(fb.db, id);
+      toast.success("Battle ended and scores finalized");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function deleteMatch(id: string) {
+    if (!fb) return;
+    if (!confirm("Delete match record permanently?")) return;
+    try {
+      await deleteDoc(doc(fb.db, "matches", id));
+      toast.success("Match record deleted");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  const live = matches.filter((m) => m.status === "waiting" || m.status === "countdown" || m.status === "active");
+  const completed = matches.filter((m) => m.status === "completed" || m.status === "cancelled");
+  const display = filter === "live" ? live : filter === "completed" ? completed : matches;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2">
+          <Button size="sm" variant={filter === "live" ? "default" : "outline"} onClick={() => setFilter("live")}>
+            Live Battles ({live.length})
+          </Button>
+          <Button size="sm" variant={filter === "completed" ? "default" : "outline"} onClick={() => setFilter("completed")}>
+            Completed ({completed.length})
+          </Button>
+          <Button size="sm" variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>
+            All ({matches.length})
+          </Button>
+        </div>
+      </div>
+
+      {display.length === 0 ? (
+        <div className="surface-card p-8 text-center text-sm text-muted-foreground">
+          No battles found in this view.
+        </div>
+      ) : (
+        <div className="surface-card divide-y">
+          {display.map((m) => {
+            const isLive = m.status === "waiting" || m.status === "countdown" || m.status === "active";
+            return (
+              <div key={m.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm">{MODE_LABEL[m.mode] || m.mode}</span>
+                    <Badge variant={isLive ? "default" : "secondary"} className="text-[10px] capitalize">
+                      {m.status}
+                    </Badge>
+                    {m.code && <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">Code: {m.code}</span>}
+                    {m.clanWarId && <Badge variant="outline" className="border-purple-500 text-purple-500 text-[10px]">CLAN WAR</Badge>}
+                  </div>
+
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Room ID: <span className="font-mono">{m.id}</span> · Players: {m.playerIds?.length ?? 0}/{m.maxPlayers ?? 2}
+                  </div>
+
+                  {m.players && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {Object.entries(m.players).map(([uid, p]) => (
+                        <span key={uid} className="inline-flex items-center gap-1 text-[11px] bg-muted/60 px-2 py-0.5 rounded border border-border/40">
+                          <strong>{p.name}</strong>: {p.score} pts ({p.correct}✓ / {p.wrong}✗)
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 self-end md:self-center">
+                  {isLive && (
+                    <>
+                      <Button size="sm" variant="default" onClick={() => endMatch(m.id)} className="gap-1 text-xs bg-amber-600 hover:bg-amber-700">
+                        <StopCircle className="size-3.5" /> End Now
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => cancelMatch(m.id)} className="gap-1 text-xs text-destructive hover:bg-destructive/10">
+                        <X className="size-3.5" /> Cancel Room
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => deleteMatch(m.id)} className="text-xs text-muted-foreground hover:text-destructive">
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================================
+ * 5. CLANS TAB (ADMIN CLAN MANAGEMENT)
+ * ========================================================================= */
+function ClansTab() {
+  const { fb } = useApp();
+  const [clans, setClans] = useState<ClanDoc[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [editingClan, setEditingClan] = useState<ClanDoc | null>(null);
+
+  function reloadClans() {
+    if (!fb) return;
+    setLoading(true);
+    getDocs(query(collection(fb.db, "clans"), orderBy("competitivePoints", "desc"), limit(60)))
+      .then((s) => setClans(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ClanDoc, "id">) }))))
+      .catch(() => {
+        getDocs(query(collection(fb.db, "clans"), limit(60)))
+          .then((s) => setClans(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ClanDoc, "id">) }))))
+          .catch((e) => toast.error("Error loading clans: " + (e as Error).message));
+      })
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reloadClans();
+  }, [fb]);
+
+  async function adjustClanPoints(c: ClanDoc, deltaCp: number) {
+    if (!fb) return;
+    const nextCp = Math.max(0, (c.competitivePoints ?? 0) + deltaCp);
+    try {
+      await updateDoc(doc(fb.db, "clans", c.id), { competitivePoints: nextCp });
+      setClans((cur) => cur.map((x) => (x.id === c.id ? { ...x, competitivePoints: nextCp } : x)));
+      toast.success(`${deltaCp > 0 ? "+" : ""}${deltaCp} CP applied to [${c.tag}] ${c.name}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function deleteClan(c: ClanDoc) {
+    if (!fb) return;
+    if (!confirm(`Disband and permanently delete clan [${c.tag}] ${c.name}? This will remove the clan for all members.`)) return;
+    try {
+      await deleteDoc(doc(fb.db, "clans", c.id));
+      setClans((cur) => cur.filter((x) => x.id !== c.id));
+      toast.success(`Clan [${c.tag}] ${c.name} disbanded`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  const term = search.trim().toLowerCase();
+  const filtered = clans.filter((c) => {
+    if (!term) return true;
+    return (
+      c.name.toLowerCase().includes(term) ||
+      c.tag.toLowerCase().includes(term) ||
+      c.leaderName.toLowerCase().includes(term)
+    );
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-2 justify-between">
+        <Input
+          placeholder="Search clans by name, tag, or leader..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-md"
+        />
+        <Button variant="outline" size="sm" onClick={reloadClans} className="gap-1.5 self-start sm:self-auto">
+          <RefreshCw className="size-3.5" /> Refresh Clans
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="surface-card flex items-center justify-center p-12 text-sm text-muted-foreground">
+          <Loader2 className="mr-2 size-5 animate-spin text-primary" /> Loading clans…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="surface-card p-8 text-center text-sm text-muted-foreground">
+          No clans registered yet.
+        </div>
+      ) : (
+        <div className="surface-card divide-y">
+          {filtered.map((c) => (
+            <div key={c.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-base">{c.name}</span>
+                  <Badge variant="secondary" className="font-mono text-xs">[{c.tag}]</Badge>
+                  <Badge variant="outline" className="text-purple-500 border-purple-500/40 text-[10px]">
+                    Lvl {c.level}
+                  </Badge>
+                  {c.suspended && <Badge variant="destructive" className="text-[10px]">SUSPENDED</Badge>}
+                </div>
+
+                <div className="text-xs text-muted-foreground mt-1">
+                  Leader: <strong className="text-foreground">{c.leaderName}</strong> · Members: {c.memberCount}/{c.maxMembers} · Policy: {c.isPublic ? "Open" : "Invite-Only"}
+                </div>
+
+                <div className="flex flex-wrap gap-3 text-xs mt-1.5 text-muted-foreground">
+                  <span className="font-semibold text-purple-400">⚡ {c.competitivePoints ?? 0} CP</span>
+                  <span>XP: {c.xp ?? 0}</span>
+                  <span>Wars: {c.totalBattlesWon ?? 0}W / {c.totalBattlesLost ?? 0}L / {c.totalBattlesDrawn ?? 0}D</span>
+                  {c.motto && <span className="italic">"{c.motto}"</span>}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 self-end md:self-center flex-wrap">
+                <Button size="sm" variant="outline" onClick={() => adjustClanPoints(c, 50)} className="text-xs">
+                  +50 CP
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => adjustClanPoints(c, 100)} className="text-xs">
+                  +100 CP
+                </Button>
+                <Button size="sm" variant="default" onClick={() => setEditingClan(c)} className="gap-1 text-xs">
+                  <Edit2 className="size-3.5" /> Edit Clan
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => deleteClan(c)} className="text-xs text-destructive hover:bg-destructive/10">
+                  <Trash2 className="size-3.5" /> Disband
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editingClan && (
+        <ClanEditDialog
+          clan={editingClan}
+          onClose={() => setEditingClan(null)}
+          onSaved={(u) => {
+            setClans((cur) => cur.map((x) => (x.id === u.id ? u : x)));
+            setEditingClan(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ClanEditDialog({
+  clan,
+  onClose,
+  onSaved,
+}: {
+  clan: ClanDoc;
+  onClose: () => void;
+  onSaved: (c: ClanDoc) => void;
+}) {
+  const { fb } = useApp();
+  const [form, setForm] = useState<ClanDoc>({ ...clan });
+  const [saving, setSaving] = useState(false);
+
+  const setF = (k: keyof ClanDoc, val: unknown) => setForm((cur) => ({ ...cur, [k]: val }));
+
+  async function handleSave() {
+    if (!fb) return;
+    setSaving(true);
+    try {
+      const updates: Record<string, unknown> = {
+        name: form.name.trim(),
+        nameLower: form.name.trim().toLowerCase(),
+        tag: form.tag.trim().toUpperCase(),
+        tagUpper: form.tag.trim().toUpperCase(),
+        level: Number(form.level) || 1,
+        competitivePoints: Number(form.competitivePoints) || 0,
+        xp: Number(form.xp) || 0,
+        maxMembers: Number(form.maxMembers) || 30,
+        minTrophyRequirement: Number(form.minTrophyRequirement) || 0,
+        description: form.description || "",
+        motto: form.motto || "",
+        isPublic: Boolean(form.isPublic),
+        suspended: Boolean(form.suspended),
+      };
+
+      await updateDoc(doc(fb.db, "clans", clan.id), updates);
+      toast.success(`Updated clan [${updates.tag}] ${updates.name}`);
+      onSaved({ ...form, ...updates });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Clan: [{clan.tag}] {clan.name}</DialogTitle>
+          <DialogDescription>Adjust clan points, roster limits, and status.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Clan Name</Label>
+              <Input value={form.name} onChange={(e) => setF("name", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Tag</Label>
+              <Input value={form.tag} onChange={(e) => setF("tag", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label>Competitive Points (CP)</Label>
+              <Input type="number" value={form.competitivePoints} onChange={(e) => setF("competitivePoints", Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Clan Level</Label>
+              <Input type="number" value={form.level} onChange={(e) => setF("level", Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Clan XP</Label>
+              <Input type="number" value={form.xp} onChange={(e) => setF("xp", Number(e.target.value))} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Max Members</Label>
+              <Input type="number" value={form.maxMembers} onChange={(e) => setF("maxMembers", Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Min Trophy Req</Label>
+              <Input type="number" value={form.minTrophyRequirement ?? 0} onChange={(e) => setF("minTrophyRequirement", Number(e.target.value))} />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Motto</Label>
+            <Input value={form.motto} onChange={(e) => setF("motto", e.target.value)} />
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Switch checked={form.isPublic} onCheckedChange={(v) => setF("isPublic", v)} />
+              <span>Open to Public</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Switch checked={Boolean(form.suspended)} onCheckedChange={(v) => setF("suspended", v)} />
+              <span className="text-destructive font-medium">Suspended</span>
+            </label>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* =========================================================================
+ * 6. TOURNAMENTS TAB
+ * ========================================================================= */
+function TournamentsTab() {
+  const { fb } = useApp();
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  function reloadTournaments() {
+    if (!fb) return;
+    setLoading(true);
+    getDocs(query(collection(fb.db, "tournaments"), orderBy("createdAt", "desc"), limit(40)))
+      .then((s) => setTournaments(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Tournament, "id">) }))))
+      .catch(() => {
+        getDocs(query(collection(fb.db, "tournaments"), limit(40)))
+          .then((s) => setTournaments(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Tournament, "id">) }))))
+          .catch((e) => toast.error("Error loading tournaments: " + (e as Error).message));
+      })
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reloadTournaments();
+  }, [fb]);
+
+  async function cancelTournament(t: Tournament) {
+    if (!fb) return;
+    if (!confirm(`Cancel tournament "${t.name}"?`)) return;
+    try {
+      await updateDoc(doc(fb.db, "tournaments", t.id), { status: "cancelled" });
+      setTournaments((cur) => cur.map((x) => (x.id === t.id ? { ...x, status: "cancelled" } : x)));
+      toast.success("Tournament cancelled");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function deleteTournament(t: Tournament) {
+    if (!fb) return;
+    if (!confirm(`Permanently delete tournament "${t.name}"?`)) return;
+    try {
+      await deleteDoc(doc(fb.db, "tournaments", t.id));
+      setTournaments((cur) => cur.filter((x) => x.id !== t.id));
+      toast.success("Tournament deleted");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <Trophy className="size-5 text-primary" /> Active & Past Tournaments
+        </h3>
+        <Button variant="outline" size="sm" onClick={reloadTournaments} className="gap-1.5">
+          <RefreshCw className="size-3.5" /> Refresh
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="surface-card flex items-center justify-center p-12 text-sm text-muted-foreground">
+          <Loader2 className="mr-2 size-5 animate-spin text-primary" /> Loading tournaments…
+        </div>
+      ) : tournaments.length === 0 ? (
+        <div className="surface-card p-8 text-center text-sm text-muted-foreground">
+          No tournaments created yet.
+        </div>
+      ) : (
+        <div className="surface-card divide-y">
+          {tournaments.map((t) => (
+            <div key={t.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-base">{t.name}</span>
+                  <Badge variant={t.status === "running" ? "default" : "secondary"} className="capitalize text-[10px]">
+                    {t.status}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground capitalize">Format: {t.format}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Subject: <strong className="text-foreground">{t.subject}</strong> · Participants: {t.participantCount ?? 0}/{t.maxParticipants} · Questions: {t.questionsPerMatch}
+                </div>
+                {t.prizes && t.prizes.length > 0 && (
+                  <div className="text-xs text-amber-500 mt-1">
+                    🏆 Prizes: {t.prizes.join(" · ")}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 self-end md:self-center">
+                {t.status !== "completed" && t.status !== "cancelled" && (
+                  <Button size="sm" variant="outline" onClick={() => cancelTournament(t)} className="text-xs text-destructive hover:bg-destructive/10">
+                    Cancel
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => deleteTournament(t)} className="text-xs text-muted-foreground hover:text-destructive">
+                  <Trash2 className="size-3.5" />
                 </Button>
               </div>
             </div>
@@ -672,6 +1585,563 @@ function PlayersTab() {
   );
 }
 
+/* =========================================================================
+ * 7. CBT COURSES TAB
+ * ========================================================================= */
+function CbtCoursesTab() {
+  const { fb } = useApp();
+  const [subjects, setSubjects] = useState<SubjectDoc[]>([]);
+  const [newCourseName, setNewCourseName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  function reload() {
+    if (!fb) return;
+    listSubjects(fb.db).then(setSubjects).catch(() => {});
+  }
+
+  useEffect(() => {
+    reload();
+  }, [fb]);
+
+  async function handleAddCourse() {
+    if (!fb || !newCourseName.trim()) return;
+    setCreating(true);
+    try {
+      await addSubject(fb.db, newCourseName.trim(), { cbtEnabled: true, cbtDuration: 30, cbtQuestionCount: 40, cbtPassMark: 50 });
+      setNewCourseName("");
+      reload();
+      toast.success("Added new course for CBT");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="surface-card p-4 space-y-3">
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <GraduationCap className="size-5 text-primary" /> Add New Course / Subject
+        </h3>
+        <div className="flex gap-2 max-w-md">
+          <Input
+            placeholder="Course name (e.g. Physics, Law, Biology)..."
+            value={newCourseName}
+            onChange={(e) => setNewCourseName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddCourse()}
+          />
+          <Button onClick={handleAddCourse} disabled={creating || !newCourseName.trim()}>
+            <Plus className="size-4 mr-1" /> Add
+          </Button>
+        </div>
+      </div>
+
+      <div className="surface-card p-4 space-y-4">
+        <div>
+          <div className="font-semibold text-base">CBT Subject Configurations</div>
+          <div className="text-muted-foreground text-xs">
+            Toggle CBT mode, set exam timers, questions count, and pass marks per subject.
+          </div>
+        </div>
+
+        <div className="divide-y">
+          {subjects.map((s) => (
+            <CbtSubjectEditor key={s.id} doc={s} onSaved={(u) => setSubjects((cur) => cur.map((x) => (x.id === u.id ? u : x)))} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CbtSubjectEditor({ doc: d0, onSaved }: { doc: SubjectDoc; onSaved: (u: SubjectDoc) => void }) {
+  const { fb } = useApp();
+  const [d, setD] = useState({
+    duration: d0.cbtDuration ?? 30,
+    questionCount: d0.cbtQuestionCount ?? 40,
+    passMark: d0.cbtPassMark ?? 50,
+    enabled: d0.cbtEnabled ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!fb) return;
+    setSaving(true);
+    try {
+      const u: SubjectDoc = {
+        ...d0,
+        cbtDuration: Math.max(1, d.duration),
+        cbtQuestionCount: Math.max(1, d.questionCount),
+        cbtPassMark: Math.max(0, Math.min(100, d.passMark)),
+        cbtEnabled: d.enabled,
+      };
+      await updateSubject(fb.db, u);
+      toast.success(`Updated settings for ${d0.name}`);
+      onSaved(u);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div>
+        <div className="font-bold text-sm flex items-center gap-2">
+          <span>{d0.name}</span>
+          <span className="font-mono text-xs text-muted-foreground">({d0.id})</span>
+        </div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          {d.enabled ? "Active for CBT testing" : "Disabled for CBT"}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs">
+          <span>Active</span>
+          <Switch checked={d.enabled} onCheckedChange={(v) => setD({ ...d, enabled: v })} />
+        </label>
+        <div className="flex items-center gap-1 text-xs">
+          <Label className="text-[11px] text-muted-foreground">Mins:</Label>
+          <Input type="number" className="w-16 h-8 text-xs" value={d.duration} onChange={(e) => setD({ ...d, duration: Number(e.target.value) })} />
+        </div>
+        <div className="flex items-center gap-1 text-xs">
+          <Label className="text-[11px] text-muted-foreground">Questions:</Label>
+          <Input type="number" className="w-16 h-8 text-xs" value={d.questionCount} onChange={(e) => setD({ ...d, questionCount: Number(e.target.value) })} />
+        </div>
+        <div className="flex items-center gap-1 text-xs">
+          <Label className="text-[11px] text-muted-foreground">Pass %:</Label>
+          <Input type="number" className="w-16 h-8 text-xs" value={d.passMark} onChange={(e) => setD({ ...d, passMark: Number(e.target.value) })} />
+        </div>
+        <Button size="sm" variant="outline" onClick={save} disabled={saving} className="h-8 text-xs">
+          {saving ? <Loader2 className="size-3 animate-spin" /> : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+ * 8. QUESTIONS TAB
+ * ========================================================================= */
+function QuestionsTab() {
+  const { fb } = useApp();
+  const [subjects, setSubjects] = useState<SubjectDoc[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<string>("all");
+  const [questions, setQuestions] = useState<QuestionDoc[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<QuestionDoc | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+
+  useEffect(() => {
+    if (fb) {
+      listSubjects(fb.db).then(setSubjects).catch(() => {});
+    }
+  }, [fb]);
+
+  useEffect(() => {
+    if (!fb) return;
+    setLoading(true);
+
+    const questionsRef = collection(fb.db, "questions");
+    const q =
+      selectedCourse && selectedCourse !== "all"
+        ? query(questionsRef, where("course", "==", selectedCourse), limit(100))
+        : query(questionsRef, limit(100));
+
+    getDocs(q)
+      .then((s) => {
+        const rawDocs = s.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>));
+
+        const mapped: QuestionDoc[] = rawDocs.map((data) => {
+          const courseVal = String(data.course ?? data.subject ?? "General");
+          const questionVal = String(data.question ?? data.text ?? "");
+          let optionsVal: string[] = ["", "", "", ""];
+          if (Array.isArray(data.options)) {
+            optionsVal = data.options.map((opt) => String(opt ?? ""));
+          }
+
+          let answerVal = 0;
+          if (typeof data.answer === "number") answerVal = data.answer;
+          else if (typeof data.correctIndex === "number") answerVal = data.correctIndex;
+
+          return {
+            id: String(data.id),
+            course: courseVal,
+            question: questionVal,
+            options: optionsVal,
+            answer: answerVal,
+            explanation: data.explanation != null ? String(data.explanation) : undefined,
+            reported: Boolean(data.reported),
+          };
+        });
+
+        setQuestions(mapped);
+      })
+      .catch((e) => toast.error("Error loading questions: " + (e as Error).message))
+      .finally(() => setLoading(false));
+  }, [fb, selectedCourse]);
+
+  async function handleDelete(id: string) {
+    if (!fb) return;
+    if (!confirm("Are you sure you want to delete this question?")) return;
+    try {
+      await deleteDoc(doc(fb.db, "questions", id));
+      setQuestions((cur) => cur.filter((x) => x.id !== id));
+      toast.success("Question deleted");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  const sTerm = (search ?? "").trim().toLowerCase();
+  const filtered = questions.filter((q) => {
+    if (!sTerm) return true;
+    const qText = String(q?.question ?? "").toLowerCase();
+    const cText = String(q?.course ?? "").toLowerCase();
+    const opts = Array.isArray(q?.options) ? q.options.join(" ").toLowerCase() : "";
+    return qText.includes(sTerm) || cText.includes(sTerm) || opts.includes(sTerm);
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-2 justify-between">
+        <div className="flex flex-1 gap-2 flex-wrap">
+          <Input
+            placeholder="Search questions by text or keyword..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-xs"
+          />
+          <Select value={selectedCourse} onValueChange={setSelectedCourse}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="All courses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Courses</SelectItem>
+              {subjects.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              clearQuestionCache();
+              toast.success("Cleared local question cache");
+            }}
+            title="Clear memory and local question caches"
+          >
+            <RotateCcw className="size-3.5 mr-1" /> Reset Cache
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
+            <Upload className="size-3.5 mr-1" /> Bulk Import
+          </Button>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-3.5 mr-1" /> Add Question
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="surface-card flex items-center justify-center p-12 text-sm text-muted-foreground">
+          <Loader2 className="mr-2 size-4 animate-spin text-primary" /> Loading questions…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="surface-card p-8 text-center text-sm text-muted-foreground">
+          No questions found. Add one above or import via JSON.
+        </div>
+      ) : (
+        <div className="surface-card divide-y">
+          {filtered.map((q) => (
+            <div key={q.id} className="p-4 flex flex-col md:flex-row md:items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  <Badge variant="secondary" className="capitalize text-[11px]">
+                    {q.course}
+                  </Badge>
+                  {q.reported && (
+                    <Badge variant="destructive" className="text-[10px]">
+                      Reported
+                    </Badge>
+                  )}
+                  <span className="text-[10px] text-muted-foreground font-mono">{q.id}</span>
+                </div>
+                <div className="text-sm font-semibold">{q.question}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2.5">
+                  {q.options.map((opt, i) => (
+                    <div
+                      key={i}
+                      className={`text-xs p-1.5 rounded border ${
+                        i === q.answer
+                          ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-medium"
+                          : "bg-muted/40 border-border/40 text-muted-foreground"
+                      }`}
+                    >
+                      <span className="font-bold mr-1">{String.fromCharCode(65 + i)}.</span> {opt}
+                    </div>
+                  ))}
+                </div>
+                {q.explanation && (
+                  <div className="text-xs text-muted-foreground mt-2 italic bg-muted/20 p-2 rounded">
+                    <strong>Explanation:</strong> {q.explanation}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 self-end md:self-start">
+                <Button size="sm" variant="ghost" onClick={() => setEditing(q)}>
+                  <Edit2 className="size-3.5" />
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => handleDelete(q.id)} className="text-destructive hover:bg-destructive/10">
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showImport && <ImportDialog onClose={() => setShowImport(false)} onImported={() => setSelectedCourse("all")} />}
+      {creating && (
+        <QuestionEditorDialog
+          course={selectedCourse !== "all" ? selectedCourse : ""}
+          onClose={() => setCreating(false)}
+          onSaved={(q) => setQuestions((cur) => [q, ...cur])}
+        />
+      )}
+      {editing && (
+        <QuestionEditorDialog
+          question={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(q) => setQuestions((cur) => cur.map((x) => (x.id === q.id ? q : x)))}
+        />
+      )}
+    </div>
+  );
+}
+
+function QuestionEditorDialog({
+  question,
+  course,
+  onClose,
+  onSaved,
+}: {
+  question?: QuestionDoc;
+  course?: string;
+  onClose: () => void;
+  onSaved: (q: QuestionDoc) => void;
+}) {
+  const { fb } = useApp();
+  const [c, setC] = useState(question?.course ?? course ?? "");
+  const [text, setText] = useState(question?.question ?? "");
+  const [opts, setOpts] = useState<string[]>(
+    Array.isArray(question?.options) && question.options.length === 4
+      ? question.options
+      : ["", "", "", ""]
+  );
+  const [ans, setAns] = useState(question?.answer ?? 0);
+  const [exp, setExp] = useState(question?.explanation ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!fb) return;
+    if (!c.trim()) return toast.error("Course/subject is required");
+    if (!text.trim()) return toast.error("Question text is required");
+    if (opts.some((o) => !o.trim())) return toast.error("All 4 options must be filled");
+
+    setSaving(true);
+    try {
+      const payload = {
+        course: c.trim().toLowerCase(),
+        subject: c.trim().toLowerCase(),
+        question: text.trim(),
+        text: text.trim(),
+        options: opts.map((o) => o.trim()),
+        answer: ans,
+        correctIndex: ans,
+        explanation: exp.trim() || null,
+        updatedAt: Date.now(),
+      };
+
+      if (question?.id) {
+        await updateDoc(doc(fb.db, "questions", question.id), payload);
+        toast.success("Question updated");
+        onSaved({ id: question.id, ...payload, explanation: exp.trim() || undefined });
+      } else {
+        const ref = await addDoc(collection(fb.db, "questions"), {
+          ...payload,
+          createdAt: Date.now(),
+        });
+        toast.success("Question created");
+        onSaved({ id: ref.id, ...payload, explanation: exp.trim() || undefined });
+      }
+      clearQuestionCache();
+      onClose();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{question ? "Edit Question" : "Add Question"}</DialogTitle>
+          <DialogDescription>Save battle and tournament questions directly to the database.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2 text-xs">
+          <div className="space-y-1">
+            <Label>Course / Subject</Label>
+            <Input value={c} onChange={(e) => setC(e.target.value)} placeholder="e.g. Mathematics, English, Biology" />
+          </div>
+
+          <div className="space-y-1">
+            <Label>Question Text</Label>
+            <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Type question prompt..." rows={3} />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Options & Correct Answer</Label>
+            {opts.map((opt, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="correct_answer"
+                  checked={ans === i}
+                  onChange={() => setAns(i)}
+                  className="size-4 text-primary"
+                />
+                <span className="font-bold w-4">{String.fromCharCode(65 + i)}</span>
+                <Input
+                  value={opt}
+                  onChange={(e) => {
+                    const next = [...opts];
+                    next[i] = e.target.value;
+                    setOpts(next);
+                  }}
+                  placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <Label>Explanation (Optional)</Label>
+            <Input value={exp} onChange={(e) => setExp(e.target.value)} placeholder="Brief reason for the answer..." />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : "Save Question"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const { fb } = useApp();
+  const [raw, setRaw] = useState("");
+  const [course, setCourse] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleImport() {
+    if (!fb) return;
+    try {
+      const { questions, errors } = parseQuestionImport(raw);
+      if (errors.length > 0 && questions.length === 0) return toast.error(errors[0]);
+      if (questions.length === 0) return toast.error("No valid questions found in payload");
+      setBusy(true);
+
+      const batch = writeBatch(fb.db);
+      for (const q of questions) {
+        const ref = doc(collection(fb.db, "questions"));
+        const subjectName = (course.trim() || q.subject || "General").trim();
+        batch.set(ref, {
+          course: subjectName.toLowerCase(),
+          subject: subjectName.toLowerCase(),
+          question: q.text,
+          text: q.text,
+          options: q.options,
+          answer: q.correctIndex,
+          correctIndex: q.correctIndex,
+          explanation: q.explanation ?? null,
+          createdAt: Date.now(),
+        });
+      }
+      await batch.commit();
+      clearQuestionCache();
+      toast.success(`Imported ${questions.length} questions successfully`);
+      onImported();
+      onClose();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Import Questions</DialogTitle>
+          <DialogDescription>Paste a JSON array of questions to bulk add them to the database.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2 text-xs">
+          <div className="space-y-1">
+            <Label>Override Course/Subject (optional)</Label>
+            <Input value={course} onChange={(e) => setCourse(e.target.value)} placeholder="Leave blank to use subject inside JSON" />
+          </div>
+
+          <div className="space-y-1">
+            <Label>JSON Payload</Label>
+            <Textarea
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              placeholder="Paste JSON array here..."
+              rows={9}
+              className="font-mono text-xs"
+            />
+          </div>
+
+          <Button variant="ghost" size="sm" onClick={() => setRaw(IMPORT_EXAMPLE)} className="text-xs text-primary">
+            Load sample JSON format
+          </Button>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button onClick={handleImport} disabled={busy || !raw.trim()}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : "Import Questions"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* =========================================================================
+ * 9. RANKED SEASONS TAB
+ * ========================================================================= */
 const RANKED_NUMBERS: { key: keyof RankedConfig; label: string; hint: string }[] = [
   { key: "winRp", label: "Victory RP", hint: "Added on a win" },
   { key: "lossRp", label: "Defeat RP", hint: "Removed on a loss" },
@@ -685,7 +2155,7 @@ const RANKED_NUMBERS: { key: keyof RankedConfig; label: string; hint: string }[]
   { key: "streakBonusRp", label: "Streak bonus RP", hint: "Extra RP per win on a streak" },
   { key: "streakBonusFrom", label: "Streak starts at", hint: "Wins in a row before bonus" },
   { key: "streakBonusMax", label: "Max streak bonus", hint: "Bonus RP cap per win" },
-  { key: "demotionShield", label: "Demotion shield", hint: "Losses forgiven before dropping a rank (0 = off)" },
+  { key: "demotionShield", label: "Demotion shield", hint: "Losses forgiven before dropping a rank" },
 ];
 
 function RankedTab() {
@@ -703,24 +2173,39 @@ function RankedTab() {
 
   if (!cfg) {
     return (
-      <div className="text-muted-foreground flex items-center gap-2 p-4 text-sm">
-        <Loader2 className="size-4 animate-spin" /> Loading ranked settings…
+      <div className="surface-card flex items-center justify-center p-12 text-sm text-muted-foreground">
+        <Loader2 className="mr-2 size-4 animate-spin text-primary" /> Loading ranked rules…
       </div>
     );
   }
 
-  const num = (v: string) => Math.max(0, Math.round(Number(v) || 0));
+  const setNum = (key: keyof RankedConfig) => (e: { target: { value: string } }) => {
+    const n = Number(e.target.value);
+    setCfg((c) => (c ? { ...c, [key]: Number.isFinite(n) ? n : c[key] } : c));
+  };
+
+  const setSeasonNum = (e: { target: { value: string } }) => {
+    const val = Number(e.target.value);
+    setCfg((c) => (c ? { ...c, season: Math.max(1, Math.floor(val || 1)) } : c));
+  };
+
+  const setEndDateStr = (e: { target: { value: string } }) => {
+    const dateStr = e.target.value;
+    if (!dateStr) return;
+    const ms = new Date(dateStr).getTime();
+    if (!isNaN(ms) && ms > 0) {
+      setCfg((c) => (c ? { ...c, seasonEndsAt: ms } : c));
+    }
+  };
+
+  const seasonEndDate = new Date(cfg.seasonEndsAt).toISOString().split("T")[0];
 
   async function save() {
-    const tiers = cfg!.tiers;
-    for (let i = 1; i < tiers.length; i++) {
-      if (tiers[i].min <= tiers[i - 1].min) return toast.error(`${tiers[i].name} must start above ${tiers[i - 1].name}`);
-    }
-    if (cfg!.placementMatches < 1) return toast.error("Placement matches must be at least 1");
+    if (!fb || !cfg) return;
     setSaving(true);
     try {
-      await saveRankedConfig(fb!.db, cfg!);
-      toast.success("Ranked settings saved");
+      await saveRankedConfig(fb.db, cfg);
+      toast.success("Ranked configuration saved");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -729,203 +2214,61 @@ function RankedTab() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="surface-card flex items-center justify-between gap-3 p-4">
+    <div className="space-y-6">
+      <div className="surface-card space-y-4 p-4 border border-border/40">
         <div>
-          <div className="font-semibold">Ranked RP enabled</div>
-          <div className="text-muted-foreground text-xs">When off, ranked battles still count for stats but RP doesn't change.</div>
-        </div>
-        <Switch checked={cfg.enabled} onCheckedChange={(v) => setCfg({ ...cfg, enabled: v })} />
-      </div>
-
-      {/* Ranked Season Manager */}
-      <div className="surface-card space-y-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-          <div className="flex items-center gap-2">
-            <div className="bg-primary/10 text-primary grid size-9 place-items-center rounded-xl">
-              <CalendarClock className="size-5" />
-            </div>
-            <div>
-              <div className="font-semibold">Ranked Season & Countdown</div>
-              <div className="text-muted-foreground text-xs">
-                Active: <span className="font-bold text-foreground">{seasonId(Date.now(), cfg)}</span>
-                {cfg.seasonEndsAt ? ` · Ends ${new Date(cfg.seasonEndsAt).toLocaleDateString()} (${Math.max(0, Math.ceil((cfg.seasonEndsAt - Date.now()) / 86400000))}d left)` : " · Automatic quarter ends"}
-              </div>
-            </div>
+          <div className="font-semibold text-base flex items-center gap-2">
+            <CalendarClock className="size-5 text-primary" /> Ranked Season Management
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            type="button"
-            onClick={() => {
-              const nextNum = (cfg.seasonNumber ?? 1) + 1;
-              const nextEnd = Date.now() + 30 * 86400000;
-              setCfg({
-                ...cfg,
-                seasonNumber: nextNum,
-                seasonName: `Season ${nextNum}`,
-                seasonStartedAt: Date.now(),
-                seasonEndsAt: nextEnd,
-              });
-              toast.info(`Pre-filled Season ${nextNum} (30 days). Click "Save ranked settings" to start!`);
-            }}
-          >
-            <Sparkles className="mr-1.5 size-3.5" /> Start next season
-          </Button>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label htmlFor="season-num">Season number</Label>
-            <Input
-              id="season-num"
-              type="number"
-              min={1}
-              value={cfg.seasonNumber ?? 1}
-              onChange={(e) => {
-                const n = Math.max(1, Math.round(Number(e.target.value) || 1));
-                setCfg({
-                  ...cfg,
-                  seasonNumber: n,
-                  seasonName: !cfg.seasonName || cfg.seasonName.startsWith("Season ") ? `Season ${n}` : cfg.seasonName,
-                });
-              }}
-            />
-            <div className="text-muted-foreground text-[11px]">Starts from 1, increments with each new season</div>
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="season-name">Season display label</Label>
-            <Input
-              id="season-name"
-              placeholder="e.g. Season 1, Season 1: Champions"
-              value={cfg.seasonName ?? `Season ${cfg.seasonNumber ?? 1}`}
-              onChange={(e) => setCfg({ ...cfg, seasonName: e.target.value })}
-            />
-            <div className="text-muted-foreground text-[11px]">Shown on player profiles and rankings pill</div>
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="season-end">Season end date & time</Label>
-            <Input
-              id="season-end"
-              type="datetime-local"
-              value={
-                cfg.seasonEndsAt
-                  ? new Date(cfg.seasonEndsAt - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-                  : ""
-              }
-              onChange={(e) => {
-                const val = e.target.value;
-                if (!val) {
-                  const next = { ...cfg };
-                  delete next.seasonEndsAt;
-                  setCfg(next);
-                } else {
-                  setCfg({ ...cfg, seasonEndsAt: new Date(val).getTime() });
-                }
-              }}
-            />
-            <div className="text-muted-foreground text-[11px]">Date when season countdown hits 0 and resets</div>
+          <div className="text-muted-foreground text-xs">
+            Manage the active ranked season, starting number, and countdown expiry.
           </div>
         </div>
 
-        {/* Quick end-date presets */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          <span className="text-muted-foreground text-xs font-medium mr-1">Quick duration:</span>
-          {[
-            { label: "+14 Days", days: 14 },
-            { label: "+30 Days", days: 30 },
-            { label: "+60 Days", days: 60 },
-            { label: "+90 Days", days: 90 },
-          ].map((preset) => (
-            <Button
-              key={preset.days}
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="h-7 text-xs px-2.5"
-              onClick={() => {
-                const end = Date.now() + preset.days * 86400000;
-                setCfg({ ...cfg, seasonEndsAt: end });
-              }}
-            >
-              {preset.label}
-            </Button>
-          ))}
-          {cfg.seasonEndsAt && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                const next = { ...cfg };
-                delete next.seasonEndsAt;
-                setCfg(next);
-              }}
-            >
-              Clear end date
-            </Button>
-          )}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label>Season Number</Label>
+            <Input type="number" min={1} value={cfg.season} onChange={setSeasonNum} />
+          </div>
+          <div className="space-y-1">
+            <Label>Season End Date</Label>
+            <Input type="date" value={seasonEndDate} onChange={setEndDateStr} />
+          </div>
         </div>
       </div>
 
-      <div className="surface-card grid gap-3 p-4 sm:grid-cols-3">
-        {RANKED_NUMBERS.map((f) => (
-          <div key={f.key} className="space-y-1">
-            <Label htmlFor={`rk-${String(f.key)}`}>{f.label}</Label>
-            <Input
-              id={`rk-${String(f.key)}`}
-              type="number"
-              min={0}
-              value={cfg[f.key] as number}
-              onChange={(e) => setCfg({ ...cfg, [f.key]: num(e.target.value) })}
-            />
-            <div className="text-muted-foreground text-[11px]">{f.hint}</div>
-          </div>
-        ))}
-      </div>
+      <div className="surface-card space-y-4 p-4 border border-border/40">
+        <div>
+          <div className="font-semibold text-base">Matchmaking & RP Calibration</div>
+          <div className="text-muted-foreground text-xs">Adjust point gains, losses, and range expansion.</div>
+        </div>
 
-      <div className="surface-card space-y-3 p-4">
-        <div className="font-semibold">Tier thresholds (starting RP)</div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {cfg.tiers.map((t, i) => (
-            <div key={t.name} className="space-y-1">
-              <Label htmlFor={`tier-${i}`} className="flex items-center gap-1.5">
-                <Shield className="size-3.5" style={{ color: t.color, fill: t.color }} />
-                {t.name}
-              </Label>
-              <Input
-                id={`tier-${i}`}
-                type="number"
-                min={0}
-                disabled={i === 0}
-                value={t.min}
-                onChange={(e) =>
-                  setCfg({
-                    ...cfg,
-                    tiers: cfg.tiers.map((x, j) => (j === i ? { ...x, min: num(e.target.value) } : x)),
-                  })
-                }
-              />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {RANKED_NUMBERS.map(({ key, label, hint }) => (
+            <div key={key} className="space-y-1">
+              <Label className="text-xs">{label}</Label>
+              <Input type="number" value={Number(cfg[key])} onChange={setNum(key)} />
+              <div className="text-[11px] text-muted-foreground">{hint}</div>
             </div>
           ))}
         </div>
       </div>
 
       <div className="flex gap-2">
-        <Button onClick={save} disabled={saving}>
-          {saving ? <Loader2 className="animate-spin" /> : <Check className="size-4" />} Save ranked settings
+        <Button onClick={save} disabled={saving} className="gap-1.5">
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save Ranked Rules
         </Button>
         <Button variant="outline" onClick={() => setCfg(DEFAULT_RANKED)}>
-          Reset to defaults
+          Reset to Defaults
         </Button>
       </div>
     </div>
   );
 }
 
+/* =========================================================================
+ * 10. APP & MATCHMAKING SETTINGS TAB
+ * ========================================================================= */
 function AppSettingsTab() {
   const { fb, settings } = useApp();
   const [ghostWaitSeconds, setGhostWaitSeconds] = useState(settings?.ghostWaitSeconds ?? 20);
@@ -951,131 +2294,58 @@ function AppSettingsTab() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="surface-card space-y-3 p-4">
+    <div className="space-y-6">
+      <div className="surface-card space-y-3 p-4 border border-border/40">
         <div className="flex items-center gap-2">
           <Clock className="text-primary size-5" />
           <div>
-            <div className="font-semibold">Ghost Rivals Matchmaking Delay</div>
+            <div className="font-semibold text-base">Ghost Rivals Matchmaking Delay</div>
             <div className="text-muted-foreground text-xs">
-              How many seconds a player waits in 1v1 matchmaking before the "Ghost Rival" option pops up.
+              Time to wait in queue before the "Ghost Rival" solo-battle option appears.
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 pt-2">
-          {[10, 15, 20, 25, 30, 45, 60].map((s) => (
+
+        <div className="space-y-3 pt-2">
+          <div className="flex flex-wrap gap-2">
+            {[10, 15, 20, 30, 45, 60].map((preset) => (
+              <Button
+                key={preset}
+                type="button"
+                size="sm"
+                variant={ghostWaitSeconds === preset ? "default" : "outline"}
+                disabled={saving}
+                onClick={() => saveGhostWait(preset)}
+                className="text-xs"
+              >
+                {preset}s {preset === 20 ? "(Default)" : ""}
+              </Button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <Label className="text-xs shrink-0">Custom timer (5s – 120s):</Label>
+            <Input
+              type="number"
+              min={5}
+              max={120}
+              className="w-24 h-9"
+              value={ghostWaitSeconds}
+              onChange={(e) => setGhostWaitSeconds(Number(e.target.value))}
+            />
             <Button
-              key={s}
               size="sm"
-              variant={ghostWaitSeconds === s ? "default" : "outline"}
-              onClick={() => saveGhostWait(s)}
+              variant="outline"
               disabled={saving}
+              onClick={() => saveGhostWait(ghostWaitSeconds)}
             >
-              {s}s
+              Apply
             </Button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 pt-2 max-w-xs">
-          <Input
-            type="number"
-            min={5}
-            max={120}
-            value={ghostWaitSeconds}
-            onChange={(e) => setGhostWaitSeconds(Number(e.target.value) || 20)}
-          />
-          <Button
-            size="sm"
-            onClick={() => saveGhostWait(ghostWaitSeconds)}
-            disabled={saving}
-          >
-            Save seconds
-          </Button>
+          </div>
         </div>
       </div>
 
       <PaymentDetailsCard />
-      <CbtSettingsCard />
-    </div>
-  );
-}
-
-function CbtSettingsCard() {
-  const { fb } = useApp();
-  const [subjects, setSubjects] = useState<SubjectDoc[]>([]);
-  const [sel, setSel] = useState<string>("");
-
-  useEffect(() => {
-    if (fb) {
-      listSubjects(fb.db)
-        .then((s) => {
-          setSubjects(s);
-          if (s[0]) setSel(s[0].id);
-        })
-        .catch(() => {});
-    }
-  }, [fb]);
-
-  const curr = subjects.find((s) => s.id === sel);
-
-  return (
-    <div className="surface-card space-y-3 p-4">
-      <div>
-        <div className="font-semibold">CBT Course Settings</div>
-        <div className="text-muted-foreground text-xs">Configure exam duration, pass mark, and question counts per subject.</div>
-      </div>
-      {subjects.length > 0 ? (
-        <Select value={sel || subjects[0]?.id} onValueChange={setSel}>
-          <SelectTrigger className="max-w-xs"><SelectValue placeholder="Select course..." /></SelectTrigger>
-          <SelectContent>
-            {subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      ) : (
-        <div className="text-muted-foreground text-xs">No subjects available yet. Add subjects in the Questions tab.</div>
-      )}
-      {curr && <CbtSubjectEditor key={curr.id} doc={curr} onSaved={(u) => setSubjects((cur) => cur.map((x) => x.id === u.id ? u : x))} />}
-    </div>
-  );
-}
-
-function CbtSubjectEditor({ doc: d0, onSaved }: { doc: SubjectDoc; onSaved: (u: SubjectDoc) => void }) {
-  const { fb } = useApp();
-  const [d, setD] = useState({
-    duration: d0.cbtDuration ?? 30,
-    questionCount: d0.cbtQuestionCount ?? 40,
-    passMark: d0.cbtPassMark ?? 50,
-    instructions: d0.cbtInstructions ?? "",
-  });
-
-  async function save(patch: Partial<SubjectDoc>) {
-    if (!fb) return;
-    try {
-      await updateSubject(fb.db, d0.id, patch);
-      onSaved({ ...d0, ...patch });
-      toast.success("CBT settings updated");
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-
-  return (
-    <div className="space-y-3 pt-2">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <Label>Duration (mins)</Label>
-          <Input type="number" min={5} value={d.duration} onChange={(e) => setD({ ...d, duration: Number(e.target.value) })} />
-        </div>
-        <div className="space-y-1">
-          <Label>Question count</Label>
-          <Input type="number" min={5} value={d.questionCount} onChange={(e) => setD({ ...d, questionCount: Number(e.target.value) })} />
-        </div>
-        <div className="space-y-1">
-          <Label>Pass mark (%)</Label>
-          <Input type="number" min={1} max={100} value={d.passMark} onChange={(e) => setD({ ...d, passMark: Number(e.target.value) })} />
-        </div>
-      </div>
-      <Textarea rows={2} placeholder="Instructions shown before the test (optional)" value={d.instructions} onChange={(e) => setD({ ...d, instructions: e.target.value })} />
-      <Button size="sm" onClick={() => save({ cbtDuration: d.duration, cbtQuestionCount: d.questionCount, cbtPassMark: d.passMark, cbtInstructions: d.instructions })}>Save settings</Button>
     </div>
   );
 }
@@ -1093,51 +2363,57 @@ function PaymentDetailsCard() {
     setP({ ...p, [k]: k === "fee" ? Number(e.target.value) : e.target.value });
 
   async function save() {
-    if (!p.bank.trim() || !p.accountNumber.trim() || !p.accountName.trim()) return toast.error("Bank, account number and account name are required");
+    if (!p.bank.trim() || !p.accountNumber.trim() || !p.accountName.trim()) {
+      return toast.error("Bank, account number and account name are required");
+    }
     if (!(p.fee >= 0)) return toast.error("Fee must be 0 or more");
     setSaving(true);
     try {
       await setDoc(doc(fb!.db, "settings", "app"), { payment: normalizePayment(p) }, { merge: true });
       toast.success("Payment details saved — new sign-ups will see them");
-    } catch (e) { toast.error((e as Error).message); }
-    finally { setSaving(false); }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div className="surface-card space-y-3 p-4">
+    <div className="surface-card space-y-3 p-4 border border-border/40">
       <div>
-        <div className="font-semibold">Payment details</div>
-        <div className="text-muted-foreground text-xs">Shown to new players on the sign-up page.</div>
+        <div className="font-semibold text-base flex items-center gap-2">
+          <Wallet className="size-5 text-emerald-500" /> Platform Bank Details
+        </div>
+        <div className="text-muted-foreground text-xs">Shown to players on sign-up and deposit pages.</div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label>Bank name</Label>
+          <Label>Bank Name</Label>
           <Input value={p.bank} onChange={set("bank")} placeholder="e.g. Kuda, OPay, GTBank" />
         </div>
         <div className="space-y-1">
-          <Label>Account number</Label>
+          <Label>Account Number</Label>
           <Input value={p.accountNumber} onChange={set("accountNumber")} placeholder="10-digit number" />
         </div>
         <div className="space-y-1">
-          <Label>Account name</Label>
-          <Input value={p.accountName} onChange={set("accountName")} placeholder="Account holder name" />
+          <Label>Account Name</Label>
+          <Input value={p.accountName} onChange={set("accountName")} placeholder="Registered account name" />
         </div>
         <div className="space-y-1">
-          <Label>Registration fee (₦)</Label>
+          <Label>Registration Fee (₦)</Label>
           <Input type="number" min={0} value={p.fee} onChange={set("fee")} />
         </div>
       </div>
-      <div className="space-y-1">
-        <Label>Payment note / instructions</Label>
-        <Input value={p.note ?? ""} onChange={set("note")} placeholder="e.g. Use your username as transfer narration" />
-      </div>
-      <Button size="sm" onClick={save} disabled={saving}>
-        {saving ? <Loader2 className="animate-spin" /> : "Save payment details"}
+      <Button onClick={save} disabled={saving} className="gap-1.5 mt-2">
+        {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save Bank Details
       </Button>
     </div>
   );
 }
 
+/* =========================================================================
+ * 11. SPONSORS TAB
+ * ========================================================================= */
 function SponsorsTab() {
   const { fb, settings } = useApp();
   const [sponsors, setSponsors] = useState<Sponsor[]>(settings?.sponsors ?? []);
@@ -1155,8 +2431,11 @@ function SponsorsTab() {
       await setDoc(doc(fb.db, "settings", "app"), { sponsors: normalizeSponsors(list) }, { merge: true });
       setSponsors(list);
       toast.success("Sponsors updated");
-    } catch (e) { toast.error((e as Error).message); }
-    finally { setSaving(false); }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function add() {
@@ -1178,13 +2457,20 @@ function SponsorsTab() {
   }
 
   return (
-    <div className="surface-card space-y-4 p-4">
+    <div className="surface-card space-y-4 p-4 border border-border/40">
       <div>
-        <div className="font-semibold">Battle Sponsors</div>
-        <div className="text-muted-foreground text-xs">Sponsor names cycled on battle loading screens and match banners.</div>
+        <div className="font-semibold text-base flex items-center gap-2">
+          <Handshake className="size-5 text-primary" /> Battle & Tournament Sponsors
+        </div>
+        <div className="text-muted-foreground text-xs">Sponsor names cycled on battle loading screens and banners.</div>
       </div>
-      <div className="flex gap-2">
-        <Input placeholder="Sponsor brand or individual name..." value={next} onChange={(e) => setNext(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+      <div className="flex gap-2 max-w-md">
+        <Input
+          placeholder="Sponsor brand or individual name..."
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
         <Button onClick={add} disabled={saving}><Plus className="size-4" /> Add</Button>
       </div>
       <div className="flex flex-wrap gap-2 pt-2">
