@@ -2384,14 +2384,20 @@ function PaymentDetailsCard() {
     setP({ ...p, [k]: k === "fee" ? Number(e.target.value) : e.target.value });
 
   async function save() {
-    if (!p.bank.trim() || !p.accountNumber.trim() || !p.accountName.trim()) {
-      return toast.error("Bank, account number and account name are required");
+    if (!p.freeRegistration) {
+      if (!p.bank.trim() || !p.accountNumber.trim() || !p.accountName.trim()) {
+        return toast.error("Bank, account number and account name are required when paid registration is enabled");
+      }
+      if (!(p.fee >= 0)) return toast.error("Fee must be 0 or more");
     }
-    if (!(p.fee >= 0)) return toast.error("Fee must be 0 or more");
     setSaving(true);
     try {
       await setDoc(doc(fb!.db, "settings", "app"), { payment: normalizePayment(p) }, { merge: true });
-      toast.success("Payment details saved — new sign-ups will see them");
+      toast.success(
+        p.freeRegistration
+          ? "Free registration active! New players register instantly without payment."
+          : "Paid registration saved — sign-ups will require bank transfer confirmation."
+      );
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -2400,37 +2406,72 @@ function PaymentDetailsCard() {
   }
 
   return (
-    <div className="surface-card space-y-3 p-4 border border-border/40">
+    <div className="surface-card space-y-4 p-4 border border-border/40">
       <div>
         <div className="font-semibold text-base flex items-center gap-2">
-          <Wallet className="size-5 text-emerald-500" /> Platform Bank Details
+          <Wallet className="size-5 text-emerald-500" /> Platform Registration & Payment Settings
         </div>
-        <div className="text-muted-foreground text-xs">Shown to players on sign-up and deposit pages.</div>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label>Bank Name</Label>
-          <Input value={p.bank} onChange={set("bank")} placeholder="e.g. Kuda, OPay, GTBank" />
-        </div>
-        <div className="space-y-1">
-          <Label>Account Number</Label>
-          <Input value={p.accountNumber} onChange={set("accountNumber")} placeholder="10-digit number" />
-        </div>
-        <div className="space-y-1">
-          <Label>Account Name</Label>
-          <Input value={p.accountName} onChange={set("accountName")} placeholder="Registered account name" />
-        </div>
-        <div className="space-y-1">
-          <Label>Registration Fee (₦)</Label>
-          <Input type="number" min={0} value={p.fee} onChange={set("fee")} />
+        <div className="text-muted-foreground text-xs">
+          Control whether registration is free or requires manual bank transfer confirmation.
         </div>
       </div>
+
+      {/* Free Registration Toggle */}
+      <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/40 p-4">
+        <div className="space-y-1 pr-4">
+          <div className="font-medium text-sm flex items-center gap-2">
+            Free Registration Mode
+            <Badge
+              variant={p.freeRegistration ? "default" : "outline"}
+              className={p.freeRegistration ? "bg-emerald-600 hover:bg-emerald-600 text-white font-semibold" : "text-muted-foreground"}
+            >
+              {p.freeRegistration ? "FREE ACTIVE" : "PAID FEE REQUIRED"}
+            </Badge>
+          </div>
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            {p.freeRegistration
+              ? "New users register immediately without paying a fee or submitting sender details. Accounts are confirmed automatically upon creation."
+              : "Users must transfer the registration fee below and submit bank transfer details before an admin confirms access."}
+          </p>
+        </div>
+        <Switch
+          checked={Boolean(p.freeRegistration)}
+          onCheckedChange={(checked) => setP((prev) => ({ ...prev, freeRegistration: checked }))}
+        />
+      </div>
+
+      {/* Bank Credentials */}
+      <div className="space-y-3 pt-1">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Bank Transfer Credentials {p.freeRegistration && "(Hidden from sign-up while Free Mode is ON)"}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label>Bank Name</Label>
+            <Input value={p.bank} onChange={set("bank")} placeholder="e.g. Kuda, OPay, GTBank" />
+          </div>
+          <div className="space-y-1">
+            <Label>Account Number</Label>
+            <Input value={p.accountNumber} onChange={set("accountNumber")} placeholder="10-digit number" />
+          </div>
+          <div className="space-y-1">
+            <Label>Account Name</Label>
+            <Input value={p.accountName} onChange={set("accountName")} placeholder="Registered account name" />
+          </div>
+          <div className="space-y-1">
+            <Label>Registration Fee (₦)</Label>
+            <Input type="number" min={0} value={p.fee} onChange={set("fee")} />
+          </div>
+        </div>
+      </div>
+
       <Button onClick={save} disabled={saving} className="gap-1.5 mt-2">
-        {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save Bank Details
+        {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save Payment Settings
       </Button>
     </div>
   );
 }
+
 
 /* =========================================================================
  * 11. SPONSORS TAB
