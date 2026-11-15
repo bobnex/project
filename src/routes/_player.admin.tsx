@@ -2186,19 +2186,34 @@ function RankedTab() {
 
   const setSeasonNum = (e: { target: { value: string } }) => {
     const val = Number(e.target.value);
-    setCfg((c) => (c ? { ...c, season: Math.max(1, Math.floor(val || 1)) } : c));
+    const num = Math.max(1, Math.floor(val || 1));
+    setCfg((c) => (c ? { ...c, seasonNumber: num, season: num, seasonName: `Season ${num}` } : c));
   };
 
   const setEndDateStr = (e: { target: { value: string } }) => {
     const dateStr = e.target.value;
-    if (!dateStr) return;
-    const ms = new Date(dateStr).getTime();
+    if (!dateStr) {
+      setCfg((c) => (c ? { ...c, seasonEndsAt: undefined } : c));
+      return;
+    }
+    const ms = new Date(`${dateStr}T23:59:59`).getTime();
     if (!isNaN(ms) && ms > 0) {
       setCfg((c) => (c ? { ...c, seasonEndsAt: ms } : c));
     }
   };
 
-  const seasonEndDate = new Date(cfg.seasonEndsAt).toISOString().split("T")[0];
+  // Safely guard date conversion against undefined, null, or invalid timestamps
+  const seasonEndDate =
+    typeof cfg.seasonEndsAt === "number" && !isNaN(cfg.seasonEndsAt) && cfg.seasonEndsAt > 0
+      ? (() => {
+          try {
+            const d = new Date(cfg.seasonEndsAt);
+            return isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0];
+          } catch {
+            return "";
+          }
+        })()
+      : "";
 
   async function save() {
     if (!fb || !cfg) return;
@@ -2228,7 +2243,12 @@ function RankedTab() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label>Season Number</Label>
-            <Input type="number" min={1} value={cfg.season} onChange={setSeasonNum} />
+            <Input
+              type="number"
+              min={1}
+              value={cfg.seasonNumber ?? (cfg as any).season ?? 1}
+              onChange={setSeasonNum}
+            />
           </div>
           <div className="space-y-1">
             <Label>Season End Date</Label>
