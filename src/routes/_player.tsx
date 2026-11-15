@@ -38,7 +38,7 @@ function PlayerLayout() {
         <Button variant="outline" onClick={() => fb && signOut(fb.auth)}>Sign out</Button>
       </div>
     );
-  if (!isAdmin && (profile.paymentStatus === "pending" || profile.paymentStatus === "rejected"))
+  if (!isAdmin && !settings.payment.freeRegistration && (profile.paymentStatus === "pending" || profile.paymentStatus === "rejected"))
     return (
       <div className="mx-auto max-w-sm p-8 text-center">
         <ShieldAlert className="text-warning mx-auto mb-3 size-8" />
@@ -50,7 +50,6 @@ function PlayerLayout() {
         <Button variant="outline" onClick={() => fb && signOut(fb.auth)}>Sign out</Button>
       </div>
     );
-
 
   return (
     <AppShell>
