@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { createUserWithEmailAndPassword, deleteUser, sendEmailVerification } from "firebase/auth";
 import { doc, getDoc, runTransaction } from "firebase/firestore";
-import { Copy, Loader2, UserPlus } from "lucide-react";
+import { CheckCircle2, Copy, Loader2, Sparkles, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,8 @@ function Signup() {
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
+  const isFree = Boolean(settings.payment?.freeRegistration);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!fb) return;
@@ -41,7 +43,7 @@ function Signup() {
     if (!USERNAME.test(username)) return toast.error("Username: 3–20 letters, numbers or underscores.");
     if (f.password.length < 6) return toast.error("Password must be at least 6 characters.");
     if (f.password !== f.confirm) return toast.error("Passwords don't match.");
-    if (!f.sender.trim()) return toast.error("Enter the name on the account you paid from.");
+    if (!isFree && !f.sender.trim()) return toast.error("Enter the name on the account you paid from.");
     setBusy(true);
     try {
       const taken = await getDoc(doc(fb.db, "usernames", lower)).catch(() => null);
@@ -58,10 +60,10 @@ function Signup() {
             usernameLower: lower,
             email: f.email.trim(),
             status: settings.requireApproval ? "pending" : "approved",
-            paymentStatus: "pending",
-            paymentSender: f.sender.trim(),
-            paymentRef: f.ref.trim(),
-            paymentAmount: settings.payment.fee,
+            paymentStatus: isFree ? "confirmed" : "pending",
+            paymentSender: isFree ? "Free Registration" : f.sender.trim(),
+            paymentRef: isFree ? "FREE" : f.ref.trim(),
+            paymentAmount: isFree ? 0 : settings.payment.fee,
             level: 1,
             xp: 0,
             rating: 1000,
@@ -80,7 +82,11 @@ function Signup() {
         throw err;
       }
       sendEmailVerification(cred.user, { url: window.location.origin + "/home" }).catch(() => {});
-      toast.success("Account created! An admin will confirm your payment shortly.");
+      toast.success(
+        isFree
+          ? "Account created! Welcome to Favoje Battle."
+          : "Account created! An admin will confirm your payment shortly."
+      );
       navigate({ to: "/home" });
     } catch (err) {
       toast.error(authError(err));
@@ -94,25 +100,40 @@ function Signup() {
   return (
     <AuthLayout title="Join the arena" subtitle="Pick a username your rivals will remember.">
       <form onSubmit={submit} className="space-y-4">
-        <div className="bg-muted space-y-2 rounded-xl p-4 text-sm">
-          <div className="font-bold">Step 1: Pay ₦{settings.payment.fee.toLocaleString()} registration fee</div>
-          <div>Bank: <span className="font-semibold">{settings.payment.bank}</span></div>
-          <div className="flex items-center gap-2">
-            Account number: <span className="font-mono font-semibold">{settings.payment.accountNumber}</span>
-            <Button type="button" size="icon" variant="ghost" className="size-7" onClick={copy} aria-label="Copy account number"><Copy className="size-3.5" /></Button>
+        {isFree ? (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-600 dark:text-emerald-400">
+            <div className="font-bold flex items-center gap-1.5">
+              <Sparkles className="size-4" /> Free Registration Active
+            </div>
+            <p className="text-xs mt-1 text-muted-foreground">
+              No registration fee required. Create your account and jump straight into battles!
+            </p>
           </div>
-          <div>Account name: <span className="font-semibold">{settings.payment.accountName}</span></div>
-          {settings.payment.note && <p className="text-muted-foreground text-xs">{settings.payment.note}</p>}
-        </div>
-        <Field id="sender" label="Name on the account you paid from" value={f.sender} onChange={set("sender")} />
-        <Field id="ref" label="Transaction reference (optional)" value={f.ref} onChange={set("ref")} optional />
-        <div className="pt-2 font-bold text-sm">Step 2: Create your account</div>
+        ) : (
+          <>
+            <div className="bg-muted space-y-2 rounded-xl p-4 text-sm">
+              <div className="font-bold">Step 1: Pay ₦{settings.payment.fee.toLocaleString()} registration fee</div>
+              <div>Bank: <span className="font-semibold">{settings.payment.bank}</span></div>
+              <div className="flex items-center gap-2">
+                Account number: <span className="font-mono font-semibold">{settings.payment.accountNumber}</span>
+                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={copy} aria-label="Copy account number"><Copy className="size-3.5" /></Button>
+              </div>
+              <div>Account name: <span className="font-semibold">{settings.payment.accountName}</span></div>
+              {settings.payment.note && <p className="text-muted-foreground text-xs">{settings.payment.note}</p>}
+            </div>
+            <Field id="sender" label="Name on the account you paid from" value={f.sender} onChange={set("sender")} />
+            <Field id="ref" label="Transaction reference (optional)" value={f.ref} onChange={set("ref")} optional />
+            <div className="pt-2 font-bold text-sm">Step 2: Create your account</div>
+          </>
+        )}
+
         <Field id="username" label="Username" value={f.username} onChange={set("username")} autoComplete="username" />
         <Field id="email" label="Email" type="email" value={f.email} onChange={set("email")} autoComplete="email" />
         <Field id="password" label="Password" type="password" value={f.password} onChange={set("password")} autoComplete="new-password" />
         <Field id="confirm" label="Confirm password" type="password" value={f.confirm} onChange={set("confirm")} autoComplete="new-password" />
         <Button type="submit" variant="hero" size="xl" className="w-full" disabled={busy || !fb}>
-          {busy ? <Loader2 className="animate-spin" /> : <UserPlus />} I've paid — create account
+          {busy ? <Loader2 className="animate-spin" /> : isFree ? <CheckCircle2 /> : <UserPlus />}
+          {isFree ? "Create free account" : "I've paid — create account"}
         </Button>
       </form>
       <p className="text-muted-foreground mt-6 text-center text-sm">
@@ -126,7 +147,7 @@ function Field(props: { id: string; label: string; type?: string; value: string;
   return (
     <div className="space-y-2">
       <Label htmlFor={props.id}>{props.label}</Label>
-      <Input id={props.id} type={props.type ?? "text"} required value={props.value} onChange={props.onChange} autoComplete={props.autoComplete} className="h-12 rounded-xl" />
+      <Input id={props.id} type={props.type ?? "text"} required={!props.optional} value={props.value} onChange={props.onChange} autoComplete={props.autoComplete} className="h-12 rounded-xl" />
     </div>
   );
 }
