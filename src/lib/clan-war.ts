@@ -27,6 +27,10 @@ export interface ClanWarSettleResult {
   newCpB: number;
   newLvlA: number;
   newLvlB: number;
+  challengerUids?: string[];
+  targetUids?: string[];
+  p1Uid?: string;
+  p2Uid?: string;
 }
 
 export function getClanWarQuestionCount(format: ClanWarFormat): number {
@@ -163,57 +167,61 @@ export async function settleClanWarMatch(
     const cB = clanBSnap.exists() ? clanBSnap.data() : {};
 
     const newCpA = Math.max(0, (cA.competitivePoints ?? 0) + cpDeltaA);
-    const nextXpA = (cA.xp ?? 0) + xpDeltaA;
-    const { level: nextLvlA } = calculateClanLevel(nextXpA);
-
     const newCpB = Math.max(0, (cB.competitivePoints ?? 0) + cpDeltaB);
-    const nextXpB = (cB.xp ?? 0) + xpDeltaB;
-    const { level: nextLvlB } = calculateClanLevel(nextXpB);
 
+    const newXpA = (cA.xp ?? 0) + xpDeltaA;
+    const newXpB = (cB.xp ?? 0) + xpDeltaB;
+
+    const nextLvlA = calculateClanLevel(newXpA);
+    const nextLvlB = calculateClanLevel(newXpB);
+
+    const now = Date.now();
+
+    // Only update if not already settled
     if (war.status !== "completed") {
-      const now = Date.now();
-      const scores: Record<string, number> = {
-        [war.challengerClanId]: score1,
-        [war.targetClanId]: score2,
-      };
-
       tx.update(challengeRef, {
         status: "completed",
         winnerClanId,
-        scores,
-        resolvedAt: now,
+        completedAt: now,
+        scores: {
+          [war.challengerClanId]: score1,
+          [war.targetClanId]: score2,
+        },
+        cpDeltaA,
+        cpDeltaB,
+        xpDeltaA,
+        xpDeltaB,
       });
 
       if (clanASnap.exists()) {
         tx.update(clanARef, {
           competitivePoints: newCpA,
-          totalBattlesWon: (cA.totalBattlesWon ?? 0) + (isWinA ? 1 : 0),
-          totalBattlesLost: (cA.totalBattlesLost ?? 0) + (!isWinA && !isDraw ? 1 : 0),
-          totalBattlesDrawn: (cA.totalBattlesDrawn ?? 0) + (isDraw ? 1 : 0),
-          xp: nextXpA,
+          xp: newXpA,
           level: Math.max(cA.level ?? 1, nextLvlA),
+          totalBattlesPlayed: (cA.totalBattlesPlayed ?? 0) + 1,
+          totalBattlesWon: (cA.totalBattlesWon ?? 0) + (isWinA ? 1 : 0),
+          updatedAt: now,
         });
       }
 
       if (clanBSnap.exists()) {
         tx.update(clanBRef, {
           competitivePoints: newCpB,
-          totalBattlesWon: (cB.totalBattlesWon ?? 0) + (isWinB ? 1 : 0),
-          totalBattlesLost: (cB.totalBattlesLost ?? 0) + (!isWinB && !isDraw ? 1 : 0),
-          totalBattlesDrawn: (cB.totalBattlesDrawn ?? 0) + (isDraw ? 1 : 0),
-          xp: nextXpB,
+          xp: newXpB,
           level: Math.max(cB.level ?? 1, nextLvlB),
+          totalBattlesPlayed: (cB.totalBattlesPlayed ?? 0) + 1,
+          totalBattlesWon: (cB.totalBattlesWon ?? 0) + (isWinB ? 1 : 0),
+          updatedAt: now,
         });
       }
 
-      // Update duel participants' member contributions
       if (p1Uid && war.challengerClanId) {
         const memARef = doc(db, "clanMembers", `${war.challengerClanId}_${p1Uid}`);
         tx.update(memARef, {
           battlesPlayed: (war.challengerMember?.battlesPlayed ?? 0) + 1,
           battlesWon: (war.challengerMember?.battlesWon ?? 0) + (isWinA ? 1 : 0),
           contributionScore: (war.challengerMember?.contributionScore ?? 0) + cpDeltaA,
-        }).catch?.(() => {});
+        });
       }
 
       if (p2Uid && war.targetClanId) {
@@ -222,7 +230,7 @@ export async function settleClanWarMatch(
           battlesPlayed: (war.targetMember?.battlesPlayed ?? 0) + 1,
           battlesWon: (war.targetMember?.battlesWon ?? 0) + (isWinB ? 1 : 0),
           contributionScore: (war.targetMember?.contributionScore ?? 0) + cpDeltaB,
-        }).catch?.(() => {});
+        });
       }
 
       const actRef = doc(collection(db, "clanActivities"));
@@ -257,6 +265,10 @@ export async function settleClanWarMatch(
       newCpB,
       newLvlA: Math.max(cA.level ?? 1, nextLvlA),
       newLvlB: Math.max(cB.level ?? 1, nextLvlB),
+      challengerUids: war.challengerRoster ?? (p1Uid ? [p1Uid] : []),
+      targetUids: war.targetRoster ?? (p2Uid ? [p2Uid] : []),
+      p1Uid,
+      p2Uid,
     };
   });
 }
