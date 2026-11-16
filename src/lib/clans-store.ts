@@ -1,31 +1,28 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import {
   collection,
+  query,
+  where,
+  onSnapshot,
   doc,
   getDocs,
-  limit,
-  onSnapshot,
-  query,
-  runTransaction,
   setDoc,
+  deleteDoc,
   updateDoc,
-  where,
 } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
-
-import { sendClanCommand } from "./clan-command";
 import { useApp } from "./app-context";
 import {
-  calculateClanLevel,
-  canPerformClanAction,
-  CLAN_CREATION_FEE_COINS,
-  CLAN_CREATION_MIN_LEVEL,
-  getMaxMembersForLevel,
-  type ClanActivity,
-  type ClanBattleChallenge,
   type ClanDoc,
   type ClanMember,
+  type ClanActivity,
+  type ClanBattleDoc,
   type ClanRole,
+  type ClanJoinPolicy,
+  type ClanBadgeIcon,
+  type ClanColorTheme,
+  CLAN_CREATION_FEE_COINS,
+  CLAN_CREATION_MIN_LEVEL,
 } from "./clans";
 
 export function usePlayerClan(uid: string | null | undefined) {
@@ -70,69 +67,52 @@ export function usePlayerClan(uid: string | null | undefined) {
         const memData = { ...memDoc.data(), uid } as ClanMember;
         setMembership(memData);
 
-        const clanId = memData.clanId;
-
-        const clanUnsub = onSnapshot(doc(fb.db, "clans", clanId), (cSnap) => {
+        const clanUnsub = onSnapshot(doc(fb.db, "clans", memData.clanId), (cSnap) => {
           if (cSnap.exists()) {
-            setClan({ ...cSnap.data(), id: cSnap.id } as ClanDoc);
-          } else {
-            setClan(null);
+            const raw = cSnap.data() as ClanDoc;
+            setClan({
+              ...raw,
+              id: cSnap.id,
+              level: raw.level ?? 1,
+              xp: raw.xp ?? 0,
+              competitivePoints: raw.competitivePoints ?? 0,
+              badgeIcon: raw.badgeIcon ?? "shield",
+              badgeColor: raw.badgeColor ?? "amber",
+              joinPolicy: raw.joinPolicy ?? "open",
+            });
+            setUnlockedAchievementIds(raw.unlockedAchievementIds ?? []);
+            setAchievementClaims(raw.achievementClaims ?? {});
           }
-          setLoading(false);
         });
 
         const membersUnsub = onSnapshot(
-          query(collection(fb.db, "clanMembers"), where("clanId", "==", clanId)),
+          query(collection(fb.db, "clanMembers"), where("clanId", "==", memData.clanId)),
           (mSnap) => {
-            const list = mSnap.docs.map((d) => ({ ...d.data() } as ClanMember));
-            setMembers(list);
-          },
+            const mems = mSnap.docs.map((d) => ({ ...d.data(), uid: d.data().uid } as ClanMember));
+            mems.sort((a, b) => (b.contributionScore || 0) - (a.contributionScore || 0));
+            setMembers(mems);
+          }
         );
 
         const actUnsub = onSnapshot(
-          query(collection(fb.db, "clanActivities"), where("clanId", "==", clanId), limit(25)),
+          query(collection(fb.db, "clanActivities"), where("clanId", "==", memData.clanId)),
           (aSnap) => {
-            const list = aSnap.docs
-              .map((d) => ({ ...d.data(), id: d.id } as ClanActivity))
-              .sort((a, b) => b.timestamp - a.timestamp);
-            setActivities(list);
-          },
-        );
-
-        const achUnsub = onSnapshot(
-          query(collection(fb.db, "clanUnlockedAchievements"), where("clanId", "==", clanId)),
-          (achSnap) => {
-            const ids = achSnap.docs
-              .map((d) => d.data().achievementId as string | undefined)
-              .filter((id): id is string => !!id);
-
-            const claims = Object.fromEntries(
-              achSnap.docs
-                .map((d) => {
-                  const data = d.data();
-                  const achievementId = data.achievementId as string | undefined;
-                  if (!achievementId) return null;
-                  return [achievementId, !!data.claimed];
-                })
-                .filter((entry): entry is [string, boolean] => !!entry),
-            );
-
-            setUnlockedAchievementIds(ids);
-            setAchievementClaims(claims);
-          },
+            const acts = aSnap.docs.map((d) => ({ ...d.data(), id: d.id } as ClanActivity));
+            acts.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            setActivities(acts.slice(0, 15));
+            setLoading(false);
+          }
         );
 
         return () => {
           clanUnsub();
           membersUnsub();
           actUnsub();
-          achUnsub();
         };
       },
-      (err) => {
-        console.error("Clan membership listener error:", err);
+      () => {
         setLoading(false);
-      },
+      }
     );
 
     return () => memUnsub();
@@ -149,6 +129,14 @@ export function usePlayerClan(uid: string | null | undefined) {
   };
 }
 
+/**
+ * Compatible hook adapter so imports of useClanMembership resolve reliably.
+ */
+export function useClanMembership(dbOrUid?: unknown, uid?: string | null) {
+  const targetUid = typeof dbOrUid === "string" ? dbOrUid : uid;
+  return usePlayerClan(targetUid);
+}
+
 export function useClansDirectory() {
   const { fb } = useApp();
   const [clans, setClans] = useState<ClanDoc[]>([]);
@@ -156,22 +144,24 @@ export function useClansDirectory() {
 
   useEffect(() => {
     if (!fb) return;
-
-    const unsub = onSnapshot(
-      collection(fb.db, "clans"),
-      (snap) => {
-        const list = snap.docs
-          .map((d) => ({ ...d.data(), id: d.id } as ClanDoc))
-          .sort((a, b) => b.competitivePoints - a.competitivePoints);
-        setClans(list);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Clans directory error:", err);
-        setLoading(false);
-      },
-    );
-
+    const unsub = onSnapshot(collection(fb.db, "clans"), (snap) => {
+      const list = snap.docs.map((d) => {
+        const raw = d.data() as ClanDoc;
+        return {
+          ...raw,
+          id: d.id,
+          level: raw.level ?? 1,
+          xp: raw.xp ?? 0,
+          competitivePoints: raw.competitivePoints ?? 0,
+          badgeIcon: raw.badgeIcon ?? "shield",
+          badgeColor: raw.badgeColor ?? "amber",
+          joinPolicy: raw.joinPolicy ?? "open",
+        };
+      });
+      list.sort((a, b) => (b.competitivePoints || 0) - (a.competitivePoints || 0));
+      setClans(list);
+      setLoading(false);
+    });
     return () => unsub();
   }, [fb]);
 
@@ -180,163 +170,157 @@ export function useClansDirectory() {
 
 export function useClanBattles(clanId: string | null) {
   const { fb } = useApp();
-  const [battles, setBattles] = useState<ClanBattleChallenge[]>([]);
+  const [challenges, setChallenges] = useState<ClanBattleDoc[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!fb || !clanId) {
-      setBattles([]);
+      setChallenges([]);
+      setLoading(false);
       return;
     }
 
-    const unsub = onSnapshot(
-      collection(fb.db, "clanBattles"),
-      (snap) => {
-        const matches = snap.docs
-          .map((d) => ({ ...d.data(), id: d.id } as ClanBattleChallenge))
-          .filter((b) => b.challengerClanId === clanId || b.targetClanId === clanId)
-          .sort((a, b) => b.createdAt - a.createdAt);
-        setBattles(matches);
-      },
-      (err) => console.error("Clan battles listener error:", err),
+    const unsubChallenger = onSnapshot(
+      query(collection(fb.db, "clanBattles"), where("challengerClanId", "==", clanId)),
+      (cSnap) => {
+        const cList = cSnap.docs.map((d) => ({ ...d.data(), id: d.id } as ClanBattleDoc));
+        const unsubTarget = onSnapshot(
+          query(collection(fb.db, "clanBattles"), where("targetClanId", "==", clanId)),
+          (tSnap) => {
+            const tList = tSnap.docs.map((d) => ({ ...d.data(), id: d.id } as ClanBattleDoc));
+            const all = [...cList, ...tList];
+            const dedup = Array.from(new Map(all.map((m) => [m.id, m])).values());
+            dedup.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            setChallenges(dedup);
+            setLoading(false);
+          }
+        );
+        return () => unsubTarget();
+      }
     );
 
-    return () => unsub();
+    return () => unsubChallenger();
   }, [fb, clanId]);
 
-  return battles;
+  return { challenges, loading };
 }
 
-function newMember(
-  clanId: string,
-  uid: string,
-  username: string,
-  role: ClanMember["role"],
-  now: number,
-): ClanMember {
-  return {
-    clanId,
-    uid,
-    username,
-    role,
-    joinedAt: now,
-    contributionScore: 0,
-    weeklyContributionXP: 0,
-    battlesWon: 0,
-    battlesPlayed: 0,
-    questionsAnswered: 0,
-    missionsCompleted: 0,
-  };
+async function sendClanCommand(action: string, payload: Record<string, unknown>) {
+  const { clanCommand } = await import("./clans.functions");
+  const res = await clanCommand({ data: { action, payload } });
+  if (!res || !res.ok) {
+    throw new Error(res?.error || "Clan command failed.");
+  }
+  return res;
 }
 
 export async function createClan(
   db: Firestore,
   userUid: string,
   username: string,
-  playerLevel: number,
+  userLevel: number,
   userCoins: number,
-  clanData: {
+  data: {
     name: string;
     tag: string;
     description: string;
-    motto: string;
-    emblem: string;
-    banner: string;
-    joinPolicy: "open" | "approval" | "invite_only";
-    minTrophyRequirement: number;
-    feeTier: "free" | "coins";
-  },
+    badgeIcon: ClanBadgeIcon;
+    badgeColor: ClanColorTheme;
+    joinPolicy: ClanJoinPolicy;
+    minLevelRequired: number;
+  }
 ) {
-  if (playerLevel < CLAN_CREATION_MIN_LEVEL) {
-    throw new Error(`Player level ${CLAN_CREATION_MIN_LEVEL} required to establish a clan.`);
+  if (userLevel < CLAN_CREATION_MIN_LEVEL) {
+    throw new Error(`You must be at least level ${CLAN_CREATION_MIN_LEVEL} to create a clan.`);
+  }
+  if (userCoins < CLAN_CREATION_FEE_COINS) {
+    throw new Error(`Creating a clan costs ${CLAN_CREATION_FEE_COINS} coins.`);
   }
 
-  if (clanData.feeTier === "coins" && userCoins < CLAN_CREATION_FEE_COINS) {
-    throw new Error(`Insufficient Juvora Coins. ${CLAN_CREATION_FEE_COINS} coins required.`);
-  }
-
-  const cleanName = clanData.name.trim();
-  const cleanTag = clanData.tag.trim().toUpperCase();
-
-  if (cleanName.length < 3 || cleanName.length > 25) {
-    throw new Error("Clan name must be between 3 and 25 characters.");
-  }
-  if (cleanTag.length < 2 || cleanTag.length > 5) {
-    throw new Error("Clan tag must be between 2 and 5 uppercase characters.");
-  }
-
-  const existingTagSnap = await getDocs(
-    query(collection(db, "clans"), where("tag", "==", cleanTag), limit(1)),
+  const existingMember = await getDocs(
+    query(collection(db, "clanMembers"), where("uid", "==", userUid))
   );
-  if (!existingTagSnap.empty) {
-    throw new Error(`Clan tag [${cleanTag}] is already registered by another order.`);
+  if (!existingMember.empty) {
+    throw new Error("You are already a member of a clan.");
   }
 
-  const existingMemberSnap = await getDocs(
-    query(collection(db, "clanMembers"), where("uid", "==", userUid), limit(1)),
+  const tagQuery = await getDocs(
+    query(collection(db, "clans"), where("tag", "==", data.tag.toUpperCase()))
   );
-  if (!existingMemberSnap.empty) {
-    throw new Error("You are already enlisted in an active clan. Leave your current clan first.");
+  if (!tagQuery.empty) {
+    throw new Error("Clan tag already taken.");
+  }
+
+  const nameQuery = await getDocs(
+    query(collection(db, "clans"), where("name", "==", data.name))
+  );
+  if (!nameQuery.empty) {
+    throw new Error("Clan name already in use.");
   }
 
   const clanRef = doc(collection(db, "clans"));
-  const memberRef = doc(db, "clanMembers", `${clanRef.id}_${userUid}`);
+  const clanId = clanRef.id;
   const now = Date.now();
 
-  await runTransaction(db, async (tx) => {
-    if (clanData.feeTier === "coins") {
-      const userRef = doc(db, "users", userUid);
-      const uSnap = await tx.get(userRef);
-      const currentCoins = uSnap.data()?.coins ?? 0;
-      if (currentCoins < CLAN_CREATION_FEE_COINS) {
-        throw new Error("Insufficient Juvora Coins for creation fee.");
-      }
-      tx.update(userRef, { coins: currentCoins - CLAN_CREATION_FEE_COINS });
-    }
+  const clanDoc: ClanDoc = {
+    id: clanId,
+    name: data.name.trim(),
+    tag: data.tag.toUpperCase().trim(),
+    description: data.description.trim(),
+    badgeIcon: data.badgeIcon,
+    badgeColor: data.badgeColor,
+    leaderUid: userUid,
+    leaderUsername: username,
+    memberCount: 1,
+    maxMembers: 20,
+    level: 1,
+    xp: 0,
+    competitivePoints: 1000,
+    joinPolicy: data.joinPolicy,
+    minLevelRequired: data.minLevelRequired,
+    createdAt: now,
+    updatedAt: now,
+    totalBattlesPlayed: 0,
+    totalBattlesWon: 0,
+    seasonRank: 0,
+    unlockedAchievementIds: [],
+    achievementClaims: {},
+  };
 
-    const newClan: Omit<ClanDoc, "id"> = {
-      name: cleanName,
-      nameLower: cleanName.toLowerCase(),
-      tag: cleanTag,
-      tagUpper: cleanTag,
-      description: clanData.description.trim(),
-      motto: clanData.motto.trim(),
-      emblem: clanData.emblem,
-      banner: clanData.banner,
-      leaderUid: userUid,
-      leaderName: username,
-      coLeaderUids: [],
-      minTrophyRequirement: clanData.minTrophyRequirement,
-      level: 1,
-      xp: 0,
-      competitivePoints: 0,
-      memberCount: 1,
-      maxMembers: getMaxMembersForLevel(1),
-      isPublic: clanData.joinPolicy !== "invite_only",
-      creationFeeTier: clanData.feeTier,
-      totalBattlesWon: 0,
-      totalBattlesLost: 0,
-      totalTournamentWins: 0,
-      achievementsUnlockedCount: 0,
-      createdAt: now,
-    };
+  await setDoc(clanRef, clanDoc);
 
-    tx.set(clanRef, { ...newClan, joinPolicy: clanData.joinPolicy, updatedAt: now });
+  const memberRef = doc(db, "clanMembers", `${clanId}_${userUid}`);
+  const memberDoc: ClanMember = {
+    clanId,
+    uid: userUid,
+    username,
+    role: "leader",
+    joinedAt: now,
+    contributionScore: 0,
+    battlesPlayed: 0,
+    battlesWon: 0,
+    lastActiveAt: now,
+  };
 
-    const leaderMember: ClanMember = newMember(clanRef.id, userUid, username, "leader", now);
-    tx.set(memberRef, leaderMember);
+  await setDoc(memberRef, memberDoc);
 
-    const actRef = doc(collection(db, "clanActivities"));
-    const act: Omit<ClanActivity, "id"> = {
-      clanId: clanRef.id,
-      type: "create",
-      actorName: username,
-      description: `Established Clan [${cleanTag}] ${cleanName}.`,
-      timestamp: now,
-    };
-    tx.set(actRef, act);
+  const actRef = doc(collection(db, "clanActivities"));
+  await setDoc(actRef, {
+    clanId,
+    type: "create",
+    description: `${username} founded [${clanDoc.tag}] ${clanDoc.name}`,
+    timestamp: now,
   });
 
-  return clanRef.id;
+  const userRef = doc(db, "profiles", userUid);
+  await updateDoc(userRef, {
+    coins: userCoins - CLAN_CREATION_FEE_COINS,
+    clanId,
+    clanTag: clanDoc.tag,
+    clanName: clanDoc.name,
+  });
+
+  return clanId;
 }
 
 export async function requestJoinClan(
@@ -344,152 +328,136 @@ export async function requestJoinClan(
   clan: ClanDoc,
   userUid: string,
   username: string,
-  playerRP: number,
+  userLevel: number
 ) {
+  if (userLevel < clan.minLevelRequired) {
+    throw new Error(`Your level (${userLevel}) is below the required level (${clan.minLevelRequired}).`);
+  }
+
   if (clan.memberCount >= clan.maxMembers) {
     throw new Error("This clan has reached maximum member capacity.");
   }
-  if (playerRP < (clan.minTrophyRequirement ?? 0)) {
-    throw new Error(`Minimum ${clan.minTrophyRequirement ?? 0} RP required to enlist in this order.`);
-  }
 
-  const existingMemberSnap = await getDocs(
-    query(collection(db, "clanMembers"), where("uid", "==", userUid), limit(1)),
+  const existingMember = await getDocs(
+    query(collection(db, "clanMembers"), where("uid", "==", userUid))
   );
-  if (!existingMemberSnap.empty) {
-    throw new Error("You are already sworn to a clan.");
+  if (!existingMember.empty) {
+    throw new Error("You are already in a clan. Leave your current clan first.");
   }
 
   const now = Date.now();
-  const memberRef = doc(db, "clanMembers", `${clan.id}_${userUid}`);
-  const clanRef = doc(db, "clans", clan.id);
 
-  await runTransaction(db, async (tx) => {
-    const cSnap = await tx.get(clanRef);
-    if (!cSnap.exists()) throw new Error("Clan not found.");
-    const cData = cSnap.data();
-    if (cData.memberCount >= cData.maxMembers) {
-      throw new Error("Clan capacity was reached.");
-    }
+  if (clan.joinPolicy === "open") {
+    const memberRef = doc(db, "clanMembers", `${clan.id}_${userUid}`);
+    const memberDoc: ClanMember = {
+      clanId: clan.id,
+      uid: userUid,
+      username,
+      role: "member",
+      joinedAt: now,
+      contributionScore: 0,
+      battlesPlayed: 0,
+      battlesWon: 0,
+      lastActiveAt: now,
+    };
+    await setDoc(memberRef, memberDoc);
 
-    const member: ClanMember = newMember(clan.id, userUid, username, "recruit", now);
-
-    tx.set(memberRef, member);
-    tx.update(clanRef, {
-      memberCount: (cData.memberCount || 0) + 1,
+    await updateDoc(doc(db, "clans", clan.id), {
+      memberCount: (clan.memberCount || 0) + 1,
       updatedAt: now,
     });
 
     const actRef = doc(collection(db, "clanActivities"));
-    tx.set(actRef, {
+    await setDoc(actRef, {
       clanId: clan.id,
-      type: "join",
-      actorUid: userUid,
-      actorName: username,
-      details: `${username} joined the clan order as a recruit.`,
+      type: "member_joined",
+      description: `${username} joined the clan`,
       timestamp: now,
     });
-  });
+
+    await updateDoc(doc(db, "profiles", userUid), {
+      clanId: clan.id,
+      clanTag: clan.tag,
+      clanName: clan.name,
+    });
+
+    return { status: "joined" };
+  }
+
+  if (clan.joinPolicy === "closed") {
+    throw new Error("This clan is currently not accepting new members.");
+  }
+
+  return { status: "requested" };
 }
 
 export async function leaveClan(db: Firestore, clanId: string, userUid: string, username: string) {
   const memberRef = doc(db, "clanMembers", `${clanId}_${userUid}`);
+  await deleteDoc(memberRef);
+
   const clanRef = doc(db, "clans", clanId);
+  const snap = await getDocs(query(collection(db, "clanMembers"), where("clanId", "==", clanId)));
+  const remaining = snap.size;
 
-  await runTransaction(db, async (tx) => {
-    const mSnap = await tx.get(memberRef);
-    if (!mSnap.exists()) return;
-
-    const mData = mSnap.data() as ClanMember;
-    if (mData.role === "leader") {
-      throw new Error("Leaders cannot abandon their post. Pass leadership to an officer first.");
-    }
-
-    const cSnap = await tx.get(clanRef);
-    if (cSnap.exists()) {
-      const cData = cSnap.data();
-      tx.update(clanRef, {
-        memberCount: Math.max(0, (cData.memberCount || 1) - 1),
-        updatedAt: Date.now(),
-      });
-    }
-
-    tx.delete(memberRef);
+  if (remaining === 0) {
+    await deleteDoc(clanRef);
+  } else {
+    await updateDoc(clanRef, {
+      memberCount: remaining,
+      updatedAt: Date.now(),
+    });
 
     const actRef = doc(collection(db, "clanActivities"));
-    tx.set(actRef, {
+    await setDoc(actRef, {
       clanId,
-      type: "leave",
-      actorUid: userUid,
-      actorName: username,
-      details: `${username} stepped down and departed from the clan.`,
+      type: "member_left",
+      description: `${username} left the clan`,
       timestamp: Date.now(),
     });
+  }
+
+  await updateDoc(doc(db, "profiles", userUid), {
+    clanId: null,
+    clanTag: null,
+    clanName: null,
   });
 }
 
 export async function updateClanMemberRole(
-  db: Firestore,
+  _db: Firestore,
   clanId: string,
   targetUid: string,
-  newRole: ClanRole,
+  newRole: ClanRole
 ) {
-  const ref = doc(db, "clanMembers", `${clanId}_${targetUid}`);
-  await updateDoc(ref, { role: newRole });
+  return sendClanCommand("updateRole", {
+    clanId,
+    targetUid,
+    newRole,
+  });
 }
 
 export async function kickClanMember(
-  db: Firestore,
+  _db: Firestore,
   clanId: string,
   targetUid: string,
-  targetName: string,
-  officerUid: string,
-  officerName: string,
+  _targetUsername: string
 ) {
-  const memberRef = doc(db, "clanMembers", `${clanId}_${targetUid}`);
-  const clanRef = doc(db, "clans", clanId);
-
-  await runTransaction(db, async (tx) => {
-    const mSnap = await tx.get(memberRef);
-    if (!mSnap.exists()) return;
-
-    const cSnap = await tx.get(clanRef);
-    if (cSnap.exists()) {
-      tx.update(clanRef, {
-        memberCount: Math.max(0, (cSnap.data().memberCount || 1) - 1),
-        updatedAt: Date.now(),
-      });
-    }
-
-    tx.delete(memberRef);
-
-    const actRef = doc(collection(db, "clanActivities"));
-    tx.set(actRef, {
-      clanId,
-      type: "kick",
-      actorUid: officerUid,
-      actorName: officerName,
-      details: `${officerName} dismissed ${targetName} from the clan.`,
-      timestamp: Date.now(),
-    });
+  return sendClanCommand("kick", {
+    clanId,
+    targetUid,
   });
 }
 
 export async function addClanAnnouncement(
-  db: Firestore,
+  _db: Firestore,
   clanId: string,
-  officerUid: string,
-  officerName: string,
-  announcementText: string,
+  _authorUid: string,
+  _authorName: string,
+  message: string
 ) {
-  const actRef = doc(collection(db, "clanActivities"));
-  await setDoc(actRef, {
+  return sendClanCommand("postAnnouncement", {
     clanId,
-    type: "announcement",
-    actorUid: officerUid,
-    actorName: officerName,
-    details: announcementText.trim(),
-    timestamp: Date.now(),
+    message,
   });
 }
 
@@ -497,10 +465,11 @@ export async function createClanChallenge(
   db: Firestore,
   challengerClan: ClanDoc,
   targetClan: ClanDoc,
-  format: "1v1" | "3v3" | "5v5",
-  roster: string[],
-): Promise<string> {
+  userUid: string,
+  format: "1v1" | "3v3" | "5v5" = "1v1"
+) {
   const ref = doc(collection(db, "clanBattles"));
+  const roster = [userUid];
   await setDoc(ref, {
     challengerClanId: challengerClan.id,
     challengerClanName: challengerClan.name,
