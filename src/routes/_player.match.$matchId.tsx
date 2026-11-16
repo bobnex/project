@@ -19,7 +19,7 @@ import { RUSH_MAX_WRONG, alivePlayers, questionMs, resultFor, standings, teamOf,
 import { play, setSfxGloballyEnabled } from "@/lib/sfx";
 import { buildBattleCardData, buildCardSummaryText, getBattleCardFileName, renderBattleCardPreview } from "@/lib/battle-card";
 import { cn } from "@/lib/utils";
-import { useClanMembership } from "@/lib/clans-store";
+import { usePlayerClan } from "@/lib/clans-store";
 
 export const Route = createFileRoute("/_player/match/$matchId")({
   head: () => ({
@@ -60,7 +60,12 @@ function MatchScreen() {
 
   useEffect(() => {
     if (!fb || !m?.questionIds?.length || qs.length === m.questionIds.length) return;
-    loadQuestions(fb.db, m.questionIds).then(setQs).catch(() => {});
+    loadQuestions(fb.db, m.questionIds)
+      .then((dict) => {
+        const list = m.questionIds.map((id) => dict[id]).filter(Boolean);
+        setQs(list);
+      })
+      .catch(() => {});
   }, [fb, m?.questionIds, qs.length]);
 
   useEffect(() => {
@@ -349,8 +354,8 @@ function DuoTeamScoreboard({ m, uid }: { m: Match; uid: string }) {
 
 /* ---------------- Results ---------------- */
 function Results({ m, uid }: { m: Match; uid: string }) {
-  const { fb, profile } = useApp();
-  const { membership } = useClanMembership(fb?.db, uid);
+  const { fb } = useApp();
+  const { membership } = usePlayerClan(uid);
   const rankedCfg = useRankedConfig(fb?.db);
   const [reward, setReward] = useState<MatchRewards | null>(null);
   const [clanWarSettle, setClanWarSettle] = useState<ClanWarSettleResult | null>(null);
@@ -397,10 +402,16 @@ function Results({ m, uid }: { m: Match; uid: string }) {
   // Determine user's clan delta accurately by checking participants roster and membership
   const isChallengerClan = useMemo(() => {
     if (!clanWarSettle) return true;
-    if (clanWarSettle.challengerUids?.includes(uid)) return true;
-    if (clanWarSettle.targetUids?.includes(uid)) return false;
-    if (clanWarSettle.p1Uid === uid) return true;
-    if (clanWarSettle.p2Uid === uid) return false;
+    const settle = clanWarSettle as ClanWarSettleResult & {
+      challengerUids?: string[];
+      targetUids?: string[];
+      p1Uid?: string;
+      p2Uid?: string;
+    };
+    if (settle.challengerUids?.includes(uid)) return true;
+    if (settle.targetUids?.includes(uid)) return false;
+    if (settle.p1Uid === uid) return true;
+    if (settle.p2Uid === uid) return false;
     if (membership?.clanId) {
       return clanWarSettle.challengerClanId === membership.clanId;
     }
@@ -438,85 +449,72 @@ function Results({ m, uid }: { m: Match; uid: string }) {
     }
   }
   async function shareResult() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
-    try {
-      if (blob) {
-        const file = new File([blob], getBattleCardFileName(card), { type: "image/png" });
-        if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ title: "Juvora Battle", text: summary, files: [file] });
-          return;
-        }
+    if (navigator.canShare?.({ text: summary })) {
+      try {
+        await navigator.share({ title: "Juvora Battle", text: summary });
+        return;
+      } catch {
+        /* share dismissed */
       }
-      await navigator.clipboard.writeText(summary);
-      toast.success("Sharing isn't supported here — summary copied instead");
-    } catch (e) {
-      if ((e as Error)?.name !== "AbortError") toast.error("Unable to share result");
     }
+    await copyResult();
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-5">
-      <div className="hero-card relative overflow-hidden p-6 text-center">
-        {result === "win" && <Sparkles className="text-warning animate-float absolute top-4 right-6 size-8" />}
-        <div className={cn("animate-pop mx-auto grid size-20 place-items-center rounded-3xl", result === "win" ? "bg-gradient-primary text-primary-foreground shadow-glow" : "bg-muted")}>
-          <Icon className="size-10" />
+    <div className="mx-auto max-w-md space-y-5 text-center">
+      <div className="surface-card space-y-4 p-6 sm:p-8">
+        <div className="bg-primary/10 mx-auto grid size-16 place-items-center rounded-2xl text-primary">
+          <Icon className="size-8" />
         </div>
-        <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl">{title}</h2>
-        <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-          {isClanWar
-            ? `Final Duel Score: ${m.players[uid]?.score ?? 0} pts`
-            : m.mode === "rush" ? `You placed #${place} of ${m.playerIds.length}` : m.mode === "duo" ? `${TEAM_META.A.name} ${teamScore(m, "A")} – ${teamScore(m, "B")} ${TEAM_META.B.name}` : `Final score: ${m.players[uid]?.score ?? 0}`}
-        </p>
+        <div>
+          <h1 className="text-3xl font-black">{title}</h1>
+          <p className="text-muted-foreground text-sm font-semibold">
+            {isClanWar ? (
+              <span className="text-foreground font-bold">
+                {clanWarSettle
+                  ? `${clanWarSettle.scoreA} - ${clanWarSettle.scoreB} vs [${isChallengerClan ? clanWarSettle.targetClanTag : clanWarSettle.challengerClanTag}]`
+                  : "Clan War Settled"}
+              </span>
+            ) : m.mode === "rush" ? (
+              place === 1 ? "You survived the rush!" : `Finished place #${place}`
+            ) : (
+              result === "win" ? "Flawless victory" : result === "draw" ? "Tied battle" : "Defeated in battle"
+            )}
+          </p>
+        </div>
 
-        {/* Clan War points display */}
+        {/* Clan War Specific Rewards */}
         {isClanWar ? (
-          <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-3 gap-2">
-              <Reward icon={Shield} label={myClanTag ? `[${myClanTag}] Points` : "Clan Points"} value={`+${myClanCpDelta} CP`} />
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Reward icon={Shield} label={`Clan CP [${myClanTag || "CLAN"}]`} value={`${myClanCpDelta >= 0 ? "+" : ""}${myClanCpDelta} CP`} />
               <Reward icon={Sparkles} label="Clan XP" value={`+${myClanXpDelta} XP`} />
-              <Reward icon={Trophy} label="Clan Total" value={myClanTotalCp !== null ? `${myClanTotalCp} CP` : "Updated"} />
             </div>
 
+            {myClanTotalCp !== null && (
+              <div className="bg-primary/5 border border-primary/20 rounded-2xl p-3 text-center">
+                <span className="text-xs text-muted-foreground font-medium">New Clan Standing: </span>
+                <span className="text-sm font-black text-primary">{myClanTotalCp} CP</span>
+              </div>
+            )}
+
             {clanWarSettle && (
-              <div className="bg-muted/80 rounded-2xl p-4 text-left border border-border/60">
-                <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                  Official Clan War Scoreboard
+              <div className="bg-muted/40 rounded-2xl p-3 text-xs space-y-1.5">
+                <div className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">War Scoreboard</div>
+                <div className="flex items-center justify-between font-bold">
+                  <span>[{clanWarSettle.challengerClanTag}] {clanWarSettle.challengerClanName}</span>
+                  <span className="tabular font-black">{clanWarSettle.scoreA} pts</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-center">
-                  <div className={cn("p-2.5 rounded-xl border flex flex-col justify-between", clanWarSettle.winnerClanId === clanWarSettle.challengerClanId ? "border-warning/50 bg-warning/10 ring-1 ring-warning/30" : "border-border/60 bg-card/60")}>
-                    <div>
-                      <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.challengerClanTag}]</div>
-                      <div className="text-xs font-black truncate">{clanWarSettle.challengerClanName}</div>
-                      <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreA}</div>
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-center gap-1.5 text-[11px] font-bold">
-                      <span className="text-primary">+{clanWarSettle.cpDeltaA} CP</span>
-                      <span className="text-muted-foreground">•</span>
-                      <span className="text-warning">+{clanWarSettle.xpDeltaA} XP</span>
-                    </div>
-                  </div>
-                  <div className={cn("p-2.5 rounded-xl border flex flex-col justify-between", clanWarSettle.winnerClanId === clanWarSettle.targetClanId ? "border-warning/50 bg-warning/10 ring-1 ring-warning/30" : "border-border/60 bg-card/60")}>
-                    <div>
-                      <div className="text-[11px] font-bold text-muted-foreground">[{clanWarSettle.targetClanTag}]</div>
-                      <div className="text-xs font-black truncate">{clanWarSettle.targetClanName}</div>
-                      <div className="text-2xl font-black mt-1 text-primary">{clanWarSettle.scoreB}</div>
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-center gap-1.5 text-[11px] font-bold">
-                      <span className="text-primary">+{clanWarSettle.cpDeltaB} CP</span>
-                      <span className="text-muted-foreground">•</span>
-                      <span className="text-warning">+{clanWarSettle.xpDeltaB} XP</span>
-                    </div>
-                  </div>
+                <div className="flex items-center justify-between font-bold">
+                  <span>[{clanWarSettle.targetClanTag}] {clanWarSettle.targetClanName}</span>
+                  <span className="tabular font-black">{clanWarSettle.scoreB} pts</span>
                 </div>
               </div>
             )}
           </div>
         ) : (
-          /* Normal individual battle rewards */
           reward && (
-            <div className="mt-5 grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Reward icon={Sparkles} label="XP" value={`+${reward.xpGained}`} />
               <Reward icon={Coins} label="Coins" value={`+${reward.coins}`} />
               {reward.ranked ? (
@@ -533,7 +531,7 @@ function Results({ m, uid }: { m: Match; uid: string }) {
             {reward.ranked.placementJustFinished && <div className="text-primary mb-1 text-sm font-extrabold">Placement complete — you start at {reward.ranked.rankAfter}!</div>}
             <div className="flex items-center justify-between text-xs font-semibold">
               <span className="text-muted-foreground">Competitive Tier</span>
-              <RankBadge rating={reward.ranked.ratingAfter} rp={reward.ranked.rpAfter} showRP />
+              <RankBadge state={reward.ranked.patch} cfg={rankedCfg} showProgress />
             </div>
           </div>
         )}
