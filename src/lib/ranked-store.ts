@@ -20,7 +20,22 @@ export async function getRankedConfig(db: Firestore, fresh = false): Promise<Ran
 
 export async function saveRankedConfig(db: Firestore, cfg: RankedConfig) {
   const clean = rankedConfig(cfg);
-  await setDoc(doc(db, "settings", "ranked"), clean);
+
+  // Firestore throws "Unsupported field value: undefined" if any object property is undefined.
+  // Strip all undefined properties before calling setDoc.
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(clean)) {
+    if (value !== undefined) {
+      payload[key] = value;
+    }
+  }
+
+  // Preserve backward compatibility with legacy .season field
+  if (typeof clean.seasonNumber === "number" && clean.seasonNumber > 0) {
+    payload.season = clean.seasonNumber;
+  }
+
+  await setDoc(doc(db, "settings", "ranked"), payload);
   cached = { at: Date.now(), cfg: clean };
 }
 
