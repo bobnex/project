@@ -3,19 +3,23 @@ import { useState } from "react";
 import {
   Award,
   CheckCircle2,
+  ChevronRight,
   Coins,
   Crown,
+  Flame,
   Lock,
   LogOut,
   Megaphone,
   PlusCircle,
   Search,
   Shield,
+  Sparkles,
   Swords,
   Trophy,
   UserMinus,
   Users,
 } from "lucide-react";
+import { collection, doc, increment, setDoc, updateDoc } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -35,12 +39,12 @@ import {
   DEFAULT_FEE_OPTIONS,
   INITIAL_ACHIEVEMENTS,
   ROLE_LABELS,
+  type ClanAchievementDef,
   type ClanDoc,
   type ClanRole,
 } from "@/lib/clans";
 import {
   addClanAnnouncement,
-  claimClanAchievementReward,
   createClan,
   createClanChallenge,
   kickClanMember,
@@ -66,13 +70,38 @@ export const Route = createFileRoute("/_player/clans")({
 
 type Tab = "hq" | "discover" | "battles" | "achievements" | "leaderboard";
 
+function getAchievementProgress(ach: ClanAchievementDef, clan: ClanDoc | null, memberCount: number) {
+  if (!clan) return { current: 0, target: ach.targetValue, unlocked: false };
+  let current = 0;
+  if (ach.category === "battle") {
+    current = clan.totalBattlesWon ?? 0;
+  } else if (ach.category === "membership") {
+    current = clan.memberCount ?? memberCount;
+  } else if (ach.category === "progression") {
+    current = clan.level ?? 1;
+  } else if (ach.category === "mission") {
+    current = (clan as any).missionsCompleted ?? 0;
+  } else if (ach.category === "academic") {
+    current = (clan as any).academicScore ?? 0;
+  }
+  const unlocked = current >= ach.targetValue || (clan.unlockedAchievementIds ?? []).includes(ach.id);
+  return { current, target: ach.targetValue, unlocked };
+}
+
 function ClansPage() {
   const navigate = useNavigate();
   const { profile, user, fb } = useApp();
   const { clan, membership, members, unlockedAchievementIds, achievementClaims } = usePlayerClan(user?.uid);
-  const unlockedAchievementSet = new Set(unlockedAchievementIds);
+  const unlockedAchievementSet = new Set(unlockedAchievementIds || []);
   const { clans } = useClansDirectory();
-  const clanBattles = useClanBattles(clan?.id ?? null);
+  
+  // Safe extraction from useClanBattles hook
+  const battlesQuery = useClanBattles(clan?.id ?? null);
+  const clanBattles = Array.isArray(battlesQuery?.challenges)
+    ? battlesQuery.challenges
+    : Array.isArray(battlesQuery)
+      ? (battlesQuery as any)
+      : [];
 
   const [activeTab, setActiveTab] = useState<Tab>("hq");
   const [searchQuery, setSearchQuery] = useState("");
@@ -95,8 +124,10 @@ function ClansPage() {
 
   // Challenge modal state
   const [targetClan, setTargetClan] = useState<ClanDoc | null>(null);
-  const [challengeFormat, setChallengeFormat] = useState<"1v1" | "3v3" | "5v5">("1v1");
+  const [challengeFormat, setChallengeFormat] = useState<"1v1" | "2v2" | "3v3" | "5v5">("1v1");
   const [sendingChallenge, setSendingChallenge] = useState(false);
+  const [quickChallengeOpen, setQuickChallengeOpen] = useState(false);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
   async function handleCreate() {
     if (!fb || !user || !profile) return;
@@ -173,13 +204,45 @@ function ClansPage() {
     }
   }
 
-  async function handleClaim(achId: string, rewardType: string, rewardValue: number | string) {
+  async function handleClaim(ach: ClanAchievementDef) {
     if (!fb || !clan || !user) return;
+    setClaimingId(ach.id);
     try {
-      await claimClanAchievementReward(fb.db, clan.id, achId, user.uid, rewardType, rewardValue);
-      toast.success("Reward successfully claimed!");
+      // 1. Update clan achievement claim record in Firestore
+      const clanRef = doc(fb.db, "clans", clan.id);
+      const updateData: Record<string, any> = {
+        [`achievementClaims.${ach.id}`]: true,
+        updatedAt: Date.now(),
+      };
+
+      if (ach.rewardType === "clan_xp") {
+        updateData.xp = increment(Number(ach.rewardValue) || 100);
+      }
+
+      await updateDoc(clanRef, updateData);
+
+      // 2. If reward is personal coins, credit user profile
+      if (ach.rewardType === "coins" && user.uid) {
+        const profileRef = doc(fb.db, "profiles", user.uid);
+        await updateDoc(profileRef, {
+          coins: increment(Number(ach.rewardValue) || 50),
+        });
+      }
+
+      // 3. Log real clan activity
+      const actRef = doc(collection(fb.db, "clanActivities"));
+      await setDoc(actRef, {
+        clanId: clan.id,
+        type: "achievement_unlocked",
+        description: `${profile?.username || "A member"} claimed the ${ach.title} accolade (+${ach.rewardLabel})`,
+        timestamp: Date.now(),
+      });
+
+      toast.success(`Acquired ${ach.title}! Spoils: ${ach.rewardLabel}`);
     } catch (err: any) {
       toast.error(err.message || "Could not claim reward");
+    } finally {
+      setClaimingId(null);
     }
   }
 
@@ -191,8 +254,8 @@ function ClansPage() {
         fb.db,
         clan,
         targetClan,
+        user.uid,
         challengeFormat,
-        [user.uid],
       )) as unknown as string | void;
 
       toast.success(`Challenge sent to [${targetClan.tag}] ${targetClan.name}!`);
@@ -216,6 +279,9 @@ function ClansPage() {
         c.tag.toLowerCase().includes(searchQuery.toLowerCase())
       : true,
   );
+
+  const activeWars = clanBattles.filter((b) => b.status === "pending" || b.status === "in_progress");
+  const pastWars = clanBattles.filter((b) => b.status === "completed" || b.status === "declined");
 
   return (
     <div className="space-y-6">
@@ -387,6 +453,7 @@ function ClansPage() {
         })}
       </div>
 
+      {/* TAB 1: HQ */}
       {activeTab === "hq" && clan && (
         <div className="space-y-6">
           <div className="relative rounded-2xl overflow-hidden border border-border shadow-xl">
@@ -439,7 +506,7 @@ function ClansPage() {
               <div className="p-2 rounded-xl bg-muted/40">
                 <div className="text-[11px] text-muted-foreground font-medium">Trophies Unlocked</div>
                 <div className="text-lg font-black text-warning flex items-center justify-center gap-1">
-                  <Crown className="size-4" /> {clan.achievementsUnlockedCount}
+                  <Crown className="size-4" /> {clan.achievementsUnlockedCount || unlockedAchievementIds.length}
                 </div>
               </div>
             </div>
@@ -542,6 +609,7 @@ function ClansPage() {
         </div>
       )}
 
+      {/* TAB 2: DISCOVER */}
       {activeTab === "discover" && (
         <div className="space-y-4">
           <div className="relative">
@@ -593,127 +661,263 @@ function ClansPage() {
         </div>
       )}
 
+      {/* TAB 3: WAR ARENA */}
       {activeTab === "battles" && (
         <div className="space-y-6">
-          <div className="p-4 rounded-xl border border-primary/30 bg-primary/10">
-            <h3 className="text-sm font-bold flex items-center gap-2 text-primary">
-              <Swords className="size-4" /> Clan War Arena
-            </h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Challenge rival clans in 1v1 duels, 3v3 skirmishes, and 5v5 supreme clashes. Verified match
-              victories award Clan XP and competitive points.
-            </p>
+          <div className="p-5 rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/10 via-card/80 to-primary/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-black flex items-center gap-2 text-primary">
+                <Swords className="size-5" /> Clan War Arena
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                Lock horns with rival academic clans in 1v1 Duels, 2v2 Tag Teams, 3v3 Skirmishes, and 5v5 Supreme Clashes.
+                Every victory awards Clan XP, Competitive Points, and unlocks rare clan war honours.
+              </p>
+            </div>
+            {clan && (
+              <Button
+                onClick={() => setQuickChallengeOpen(true)}
+                className="font-bold shadow-glow shrink-0"
+              >
+                <Flame className="size-4 mr-1.5 text-warning" /> Challenge a Rival
+              </Button>
+            )}
           </div>
 
+          {/* Active / In-Progress Wars */}
           <div className="space-y-3">
-            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Recent War Matches
-            </h4>
-            {clanBattles.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground text-xs border border-dashed rounded-xl">
-                No active war clashes recorded. Challenge a rival clan from the Discover tab!
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Flame className="size-3.5 text-warning" /> Active Clashes ({activeWars.length})
+              </h4>
+            </div>
+
+            {activeWars.length === 0 ? (
+              <div className="p-6 text-center text-muted-foreground text-xs border border-dashed rounded-xl bg-card/20">
+                No active war clashes right now. Launch a duel against any registered clan!
               </div>
             ) : (
-              clanBattles.map((b) => (
+              activeWars.map((b) => (
                 <div
                   key={b.id}
-                  className="p-3.5 rounded-xl border border-border bg-card/60 flex items-center justify-between gap-3"
+                  className="p-4 rounded-xl border border-primary/30 bg-card/80 flex items-center justify-between gap-3 shadow-sm hover:border-primary/50 transition-all"
                 >
-                  <div>
-                    <div className="text-xs font-bold flex items-center gap-1.5">
-                      <Swords className="size-3.5 text-primary" />
-                      [{b.challengerClanTag}] {b.challengerClanName} vs [{b.targetClanTag}] {b.targetClanName}
+                  <div className="space-y-1">
+                    <div className="text-sm font-black flex items-center gap-2">
+                      <Swords className="size-4 text-primary animate-pulse" />
+                      <span className="text-primary font-bold">[{b.challengerClanTag}]</span> {b.challengerClanName}
+                      <span className="text-xs text-muted-foreground">vs</span>
+                      <span className="text-primary font-bold">[{b.targetClanTag}]</span> {b.targetClanName}
                     </div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">
-                      Format: <span className="font-semibold text-foreground uppercase">{b.format}</span> · Status:{" "}
-                      <span className="capitalize font-semibold text-primary">{b.status.replace("_", " ")}</span>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded font-black text-[10px] bg-primary/20 text-primary uppercase">
+                        {b.format || "1v1"}
+                      </span>
+                      <span>·</span>
+                      <span className="capitalize font-semibold text-warning">
+                        {b.status === "in_progress" ? "Battle In Progress" : "Pending Roster Confirmation"}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant={b.status === "in_progress" ? "default" : "outline"}
-                      className="text-xs h-8 font-bold"
-                      asChild
-                    >
-                      <Link to="/clan-war/$challengeId" params={{ challengeId: b.id }}>
-                        {b.status === "in_progress"
-                          ? "Battle Live"
-                          : b.status === "completed"
-                            ? "View Results"
-                            : "Enter War Room"}
-                      </Link>
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant={b.status === "in_progress" ? "default" : "secondary"}
+                    className="text-xs h-9 font-bold shrink-0"
+                    asChild
+                  >
+                    <Link to="/clan-war/$challengeId" params={{ challengeId: b.id }}>
+                      {b.status === "in_progress" ? "Enter Battle" : "Open War Room"}
+                      <ChevronRight className="size-3.5 ml-1" />
+                    </Link>
+                  </Button>
                 </div>
               ))
+            )}
+          </div>
+
+          {/* Past War History */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              War Clashes History ({pastWars.length})
+            </h4>
+
+            {pastWars.length === 0 ? (
+              <div className="p-6 text-center text-muted-foreground text-xs border border-dashed rounded-xl bg-card/10">
+                No finished clashes recorded yet.
+              </div>
+            ) : (
+              pastWars.map((b) => {
+                const isChallenger = b.challengerClanId === clan?.id;
+                const myScore = isChallenger ? (b.challengerScore ?? 0) : (b.targetScore ?? 0);
+                const enemyScore = isChallenger ? (b.targetScore ?? 0) : (b.challengerScore ?? 0);
+                const isWin = b.winnerClanId === clan?.id;
+                const isDraw = b.status === "completed" && !b.winnerClanId;
+
+                return (
+                  <div
+                    key={b.id}
+                    className="p-3.5 rounded-xl border border-border bg-card/50 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div>
+                      <div className="font-bold flex items-center gap-1.5">
+                        <span>[{b.challengerClanTag}] {b.challengerClanName}</span>
+                        <span className="text-muted-foreground">vs</span>
+                        <span>[{b.targetClanTag}] {b.targetClanName}</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-2">
+                        <span className="uppercase font-semibold">{b.format || "1v1"}</span>
+                        <span>·</span>
+                        {b.status === "completed" ? (
+                          <span className="font-bold text-foreground">
+                            Final Score: {b.challengerScore ?? 0} - {b.targetScore ?? 0}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">Declined</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {clan && b.status === "completed" && (
+                        <span
+                          className={`font-black px-2 py-0.5 rounded text-[10px] ${
+                            isWin
+                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              : isDraw
+                                ? "bg-muted text-muted-foreground"
+                                : "bg-destructive/20 text-destructive border border-destructive/30"
+                          }`}
+                        >
+                          {isWin ? "VICTORY" : isDraw ? "DRAW" : "DEFEAT"}
+                        </span>
+                      )}
+
+                      <Button size="sm" variant="ghost" className="h-8 text-xs font-semibold" asChild>
+                        <Link to="/clan-war/$challengeId" params={{ challengeId: b.id }}>
+                          View Match
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
       )}
 
+      {/* TAB 4: ACHIEVEMENTS & TROPHIES */}
       {activeTab === "achievements" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="space-y-5">
+          <div className="p-5 rounded-2xl border border-warning/30 bg-gradient-to-r from-warning/10 via-card/80 to-transparent flex items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-bold flex items-center gap-2">
-                <Award className="size-4 text-warning" /> Trophies & Rewards Centre
+              <h3 className="text-base font-black flex items-center gap-2 text-warning">
+                <Award className="size-5" /> Trophies & Rewards Centre
               </h3>
-              <p className="text-xs text-muted-foreground">
-                Manual claim required for all unlocked accolades and mixed spoils.
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Climb tiers together. Complete collective clan milestones to earn Juvora Coins, bonus Clan XP, and elite war titles.
               </p>
             </div>
+            {clan && (
+              <div className="text-right shrink-0">
+                <div className="text-xs text-muted-foreground font-semibold">Trophies Unlocked</div>
+                <div className="text-lg font-black text-warning">
+                  {INITIAL_ACHIEVEMENTS.filter((a) => getAchievementProgress(a, clan, members.length).unlocked).length} / {INITIAL_ACHIEVEMENTS.length}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3.5 sm:grid-cols-2">
             {INITIAL_ACHIEVEMENTS.map((ach) => {
-              const unlocked = unlockedAchievementSet.has(ach.id);
+              const { current, target, unlocked } = getAchievementProgress(ach, clan, members.length);
               const claimed = !!achievementClaims[ach.id];
+              const isClaiming = claimingId === ach.id;
+              const progressPct = Math.min(100, Math.round((current / target) * 100));
 
               return (
                 <div
                   key={ach.id}
-                  className={`p-4 rounded-xl border transition-all ${
-                    unlocked ? "border-warning/50 bg-warning/5" : "border-border/60 bg-card/40 opacity-80"
+                  className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                    unlocked
+                      ? "border-warning/50 bg-warning/5 shadow-sm"
+                      : "border-border/60 bg-card/40 opacity-85"
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold">
-                          {ach.isSecret && !unlocked ? "Secret Acquired Honour" : ach.title}
-                        </span>
-                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-black bg-muted text-muted-foreground">
-                          {ach.rarity}
-                        </span>
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-foreground">
+                            {ach.isSecret && !unlocked ? "Secret Clan Milestone" : ach.title}
+                          </span>
+                          <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-black bg-muted text-muted-foreground">
+                            {ach.rarity}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          {ach.isSecret && !unlocked
+                            ? "This prestigious feat remains shrouded in mystery until achieved."
+                            : ach.description}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {ach.isSecret && !unlocked
-                          ? "This prestigious feat is concealed until achieved."
-                          : ach.description}
-                      </p>
+
+                      {unlocked ? (
+                        <CheckCircle2 className="size-4 text-warning shrink-0 mt-0.5" />
+                      ) : (
+                        <Lock className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+                      )}
                     </div>
-                    {unlocked ? (
-                      <CheckCircle2 className="size-4 text-warning shrink-0" />
-                    ) : (
-                      <Lock className="size-4 text-muted-foreground shrink-0" />
+
+                    {/* Live Progress Bar for Clan */}
+                    {clan && !ach.isSecret && (
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-[10px] text-muted-foreground font-medium">
+                          <span>Progress</span>
+                          <span>{current} / {target}</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-muted/60 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              unlocked ? "bg-warning" : "bg-primary"
+                            }`}
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
 
                   <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-xs">
-                    <span className="text-[11px] font-semibold text-primary">Reward: {ach.rewardLabel}</span>
+                    <span className="text-[11px] font-semibold text-primary flex items-center gap-1">
+                      <Sparkles className="size-3 text-warning" />
+                      Reward: {ach.rewardLabel}
+                    </span>
+
                     {unlocked && !claimed && clan && (
                       <Button
                         size="sm"
                         variant="secondary"
-                        className="h-7 text-xs font-bold"
-                        onClick={() => handleClaim(ach.id, ach.rewardType, ach.rewardValue)}
+                        disabled={isClaiming}
+                        className="h-7 text-xs font-bold shadow-glow"
+                        onClick={() => handleClaim(ach)}
                       >
-                        Claim Reward
+                        {isClaiming ? "Claiming..." : "Claim Reward"}
                       </Button>
                     )}
-                    {claimed && <span className="text-[10px] text-muted-foreground font-bold">Claimed ✓</span>}
+
+                    {claimed && (
+                      <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
+                        Claimed ✓
+                      </span>
+                    )}
+
+                    {!unlocked && (
+                      <span className="text-[10px] text-muted-foreground font-medium">
+                        Locked
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -722,6 +926,7 @@ function ClansPage() {
         </div>
       )}
 
+      {/* TAB 5: LEADERBOARD */}
       {activeTab === "leaderboard" && (
         <div className="space-y-3">
           <h3 className="text-sm font-bold flex items-center gap-2">
@@ -759,6 +964,7 @@ function ClansPage() {
         </div>
       )}
 
+      {/* ANNOUNCEMENT MODAL */}
       <Dialog open={annOpen} onOpenChange={setAnnOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -791,6 +997,50 @@ function ClansPage() {
         </DialogContent>
       </Dialog>
 
+      {/* QUICK CHALLENGE RIVAL SELECTOR MODAL */}
+      <Dialog open={quickChallengeOpen} onOpenChange={setQuickChallengeOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Flame className="size-5 text-warning" /> Challenge Rival Clan
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              Select any registered clan from the directory to issue an academic war challenge.
+            </p>
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {clans
+                .filter((c) => c.id !== clan?.id)
+                .map((c) => (
+                  <div
+                    key={c.id}
+                    className="p-2.5 rounded-lg border border-border bg-card/60 flex items-center justify-between text-xs hover:border-primary/50 transition-all cursor-pointer"
+                    onClick={() => {
+                      setQuickChallengeOpen(false);
+                      setTargetClan(c);
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{c.emblem}</span>
+                      <div>
+                        <div className="font-bold">
+                          {c.name} <span className="text-primary font-black">[{c.tag}]</span>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">Level {c.level} · {c.competitivePoints} CP</div>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-7 text-xs font-bold">
+                      Select
+                    </Button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* CHALLENGE LAUNCH MODAL */}
       <Dialog open={!!targetClan} onOpenChange={(o) => !o && setTargetClan(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -801,25 +1051,32 @@ function ClansPage() {
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <label className="text-xs font-semibold">War Format</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["1v1", "3v3", "5v5"] as const).map((fmt) => (
+              <div className="grid grid-cols-4 gap-1.5">
+                {(["1v1", "2v2", "3v3", "5v5"] as const).map((fmt) => (
                   <Button
                     key={fmt}
                     variant={challengeFormat === fmt ? "default" : "outline"}
                     size="sm"
+                    className="text-xs font-bold"
                     onClick={() => setChallengeFormat(fmt)}
                   >
                     {fmt}
                   </Button>
                 ))}
               </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {challengeFormat === "1v1" && "Solo duel between clan champions."}
+                {challengeFormat === "2v2" && "Duo synergy battle with synced bonus."}
+                {challengeFormat === "3v3" && "3-combatant team skirmish."}
+                {challengeFormat === "5v5" && "Full clan showdown across academic subjects."}
+              </p>
             </div>
             <Button
               className="w-full font-bold shadow-glow"
               disabled={sendingChallenge}
               onClick={handleChallenge}
             >
-              {sendingChallenge ? "Sending..." : "Confirm Challenge"}
+              {sendingChallenge ? "Dispatching..." : "Confirm Challenge"}
             </Button>
           </div>
         </DialogContent>
