@@ -38,7 +38,11 @@ import { createRoom } from "@/lib/engine";
 import { pageMeta } from "@/lib/meta";
 
 export const Route = createFileRoute("/_player/friends")({
-  head: () => pageMeta("Friends", "Find players, view their stats and send friend requests."),
+  head: () =>
+    pageMeta(
+      "Friends",
+      "Find players, view their stats and send friend requests.",
+    ),
   component: Friends,
 });
 
@@ -132,7 +136,7 @@ function Friends() {
   useEffect(() => {
     if (!fb || !user) return;
 
-    const term = name.trim().toLower();
+    const term = name.trim().toLowerCase();
     setSelected(null);
 
     if (!term) {
@@ -143,27 +147,36 @@ function Friends() {
 
     setSearching(true);
     let cancelled = false;
+
     const timer = window.setTimeout(async () => {
       try {
         const snapshot = await getDocs(
-          query(
-            collection(fb.db, "users"),
-            where("usernameLower", ">=", term),
-            where("usernameLower", "<=", `${term}\uf8ff`),
-            limit(8),
-          ),
+          query(collection(fb.db, "users"), limit(100)),
         );
 
         if (cancelled) return;
 
-        setSuggestions(
-          snapshot.docs
-            .map((item) => ({
-              id: item.id,
-              ...(item.data() as Omit<PlayerProfile, "id">),
-            }))
-            .filter((player) => player.id !== user.uid),
-        );
+        const matches = snapshot.docs
+          .map((item) => ({
+            id: item.id,
+            ...(item.data() as Omit<PlayerProfile, "id">),
+          }))
+          .filter((player) => {
+            if (player.id === user.uid) return false;
+
+            const username = String(player.username ?? "").toLowerCase();
+            const usernameLower = String(
+              player.usernameLower ?? "",
+            ).toLowerCase();
+
+            return (
+              username.includes(term) ||
+              usernameLower.includes(term)
+            );
+          })
+          .slice(0, 8);
+
+        setSuggestions(matches);
       } catch (error) {
         if (!cancelled) {
           toast.error((error as Error).message);
@@ -190,7 +203,8 @@ function Friends() {
     if (
       incoming.some(
         (request) =>
-          request.from === selected.id && request.status === "pending",
+          request.from === selected.id &&
+          request.status === "pending",
       )
     ) {
       return "incoming";
@@ -205,10 +219,10 @@ function Friends() {
     setName(player.username);
     setSuggestions([]);
     setSearching(false);
-    setBusy(null);
 
     try {
       const snapshot = await getDoc(doc(fb.db, "users", player.id));
+
       if (!snapshot.exists()) {
         toast.error("This player profile could not be found.");
         return;
@@ -227,6 +241,7 @@ function Friends() {
     if (!selected) return;
 
     setBusy("send");
+
     try {
       if (selected.id === user.uid) {
         throw new Error("That's you!");
@@ -237,6 +252,7 @@ function Friends() {
       }
 
       const requestId = `${user.uid}_${selected.id}`;
+
       await setDoc(doc(fb.db, "friendRequests", requestId), {
         from: user.uid,
         fromName: profile.username,
@@ -246,13 +262,16 @@ function Friends() {
         createdAt: Date.now(),
       });
 
-      await addDoc(collection(fb.db, "users", selected.id, "notifications"), {
-        type: "friend",
-        fromName: profile.username,
-        text: `${profile.username} sent you a friend request`,
-        read: false,
-        createdAt: Date.now(),
-      });
+      await addDoc(
+        collection(fb.db, "users", selected.id, "notifications"),
+        {
+          type: "friend",
+          fromName: profile.username,
+          text: `${profile.username} sent you a friend request`,
+          read: false,
+          createdAt: Date.now(),
+        },
+      );
 
       toast.success("Friend request sent");
       setName("");
@@ -277,15 +296,19 @@ function Friends() {
       createdAt: Date.now(),
     });
 
-    await updateDoc(doc(fb.db, "friendRequests", request.id), {
-      status: "accepted",
-    });
+    await updateDoc(
+      doc(fb.db, "friendRequests", request.id),
+      { status: "accepted" },
+    );
 
     toast.success(`You and ${request.fromName} are now friends`);
   }
 
   async function challenge(friend: Friend) {
-    const other = friend.uids.find((uid) => uid !== user.uid)!;
+    const other = friend.uids.find((uid) => uid !== user.uid);
+
+    if (!other) return;
+
     setBusy(friend.id);
 
     try {
@@ -297,15 +320,18 @@ function Friends() {
         "all",
       );
 
-      await addDoc(collection(fb.db, "users", other, "notifications"), {
-        type: "challenge",
-        fromName: profile.username,
-        code: room.code,
-        matchId: room.id,
-        text: `${profile.username} challenged you to a 1v1 battle`,
-        read: false,
-        createdAt: Date.now(),
-      });
+      await addDoc(
+        collection(fb.db, "users", other, "notifications"),
+        {
+          type: "challenge",
+          fromName: profile.username,
+          code: room.code,
+          matchId: room.id,
+          text: `${profile.username} challenged you to a 1v1 battle`,
+          read: false,
+          createdAt: Date.now(),
+        },
+      );
 
       navigate({
         to: "/match/$matchId",
@@ -319,23 +345,22 @@ function Friends() {
 
   const battles = selected?.battles ?? 0;
   const wins = selected?.wins ?? 0;
-  const winRate = battles > 0 ? Math.round((wins / battles) * 100) : 0;
+  const winRate =
+    battles > 0 ? Math.round((wins / battles) * 100) : 0;
 
   return (
     <div className="space-y-6">
       <Section title="Find players" icon={Search}>
         <div className="surface-card relative p-4">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Search for a player"
-                className="h-11 pl-9"
-                autoComplete="off"
-              />
-            </div>
+          <div className="relative">
+            <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Search for a player"
+              className="h-11 pl-9"
+              autoComplete="off"
+            />
           </div>
 
           {name.trim() && !selected && (
@@ -358,12 +383,14 @@ function Friends() {
                     className="hover:bg-muted flex w-full items-center gap-3 border-b p-3 text-left last:border-b-0"
                   >
                     <PlayerAvatar name={player.username} size={38} />
+
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold">
                         {player.username}
                       </div>
                       <div className="text-muted-foreground text-xs">
-                        Level {player.level ?? 1} · {player.rating ?? 1000} rating
+                        Level {player.level ?? 1} ·{" "}
+                        {player.rating ?? 1000} rating
                       </div>
                     </div>
                   </button>
@@ -383,7 +410,8 @@ function Friends() {
                   {selected.username}
                 </h3>
                 <p className="text-muted-foreground text-sm">
-                  Level {selected.level ?? 1} · Rating {selected.rating ?? 1000}
+                  Level {selected.level ?? 1} · Rating{" "}
+                  {selected.rating ?? 1000}
                 </p>
               </div>
 
@@ -470,23 +498,33 @@ function Friends() {
               key={request.id}
               className="surface-card flex items-center gap-3 p-3"
             >
-              <PlayerAvatar name={request.fromName} size={36} />
+              <PlayerAvatar
+                name={request.fromName}
+                size={36}
+              />
+
               <span className="flex-1 font-semibold">
                 {request.fromName}
               </span>
+
               <Button
                 size="icon"
                 variant="outline"
                 aria-label="Decline"
                 onClick={() =>
                   updateDoc(
-                    doc(fb.db, "friendRequests", request.id),
+                    doc(
+                      fb.db,
+                      "friendRequests",
+                      request.id,
+                    ),
                     { status: "declined" },
                   )
                 }
               >
                 <X />
               </Button>
+
               <Button
                 size="icon"
                 aria-label="Accept"
@@ -499,7 +537,10 @@ function Friends() {
         </Section>
       )}
 
-      <Section title={`Friends (${friends.length})`} icon={Users}>
+      <Section
+        title={`Friends (${friends.length})`}
+        icon={Users}
+      >
         {friends.length === 0 ? (
           <Empty
             icon={Users}
@@ -511,29 +552,45 @@ function Friends() {
             {friends.map((friend) => {
               const other = friend.uids.find(
                 (uid) => uid !== user.uid,
-              )!;
-              const name = friend.names?.[other] ?? "Player";
+              );
+
+              if (!other) return null;
+
+              const friendName =
+                friend.names?.[other] ?? "Player";
 
               return (
                 <div
                   key={friend.id}
                   className="surface-card flex items-center gap-3 p-3"
                 >
-                  <PlayerAvatar name={name} size={38} />
+                  <PlayerAvatar
+                    name={friendName}
+                    size={38}
+                  />
+
                   <span className="flex-1 truncate font-semibold">
-                    {name}
+                    {friendName}
                   </span>
+
                   <Button
                     size="icon"
                     variant="ghost"
                     aria-label="Remove friend"
                     onClick={() =>
-                      confirm(`Remove ${name}?`) &&
-                      deleteDoc(doc(fb.db, "friendships", friend.id))
+                      confirm(`Remove ${friendName}?`) &&
+                      deleteDoc(
+                        doc(
+                          fb.db,
+                          "friendships",
+                          friend.id,
+                        ),
+                      )
                     }
                   >
                     <UserMinus />
                   </Button>
+
                   <Button
                     size="sm"
                     variant="hero"
