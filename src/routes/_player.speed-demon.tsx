@@ -139,6 +139,29 @@ function SpeedDemon() {
   const [personalBest, setPersonalBest] = useState<SpeedResult | null>(null);
   const submittedRef = useRef(false);
 
+  // Live state ref to prevent stale closures inside timer intervals
+  const stateRef = useRef({
+    score: 0,
+    correct: 0,
+    wrong: 0,
+    skipped: 0,
+    bestStreak: 0,
+    responseTimes: [] as number[],
+    course: "all",
+    personalBest: null as SpeedResult | null,
+  });
+
+  stateRef.current = {
+    score,
+    correct,
+    wrong,
+    skipped,
+    bestStreak,
+    responseTimes,
+    course,
+    personalBest,
+  };
+
   useEffect(() => {
     if (!fb) return;
     return onSnapshot(
@@ -150,8 +173,30 @@ function SpeedDemon() {
     );
   }, [fb]);
 
+  // Read saved personal best from Firestore, falling back to profile stats
   useEffect(() => {
     if (!fb || !user) return;
+
+    if (profile?.speedDemonPersonalBest && !personalBest) {
+      setPersonalBest({
+        id: "profile_pb",
+        uid: user.uid,
+        username: profile.username,
+        course: "all",
+        score: profile.speedDemonPersonalBest,
+        attempted: 0,
+        correct: profile.speedDemonCorrect ?? 0,
+        wrong: 0,
+        skipped: 0,
+        accuracy: 100,
+        avgResponseMs: 0,
+        bestStreak: profile.speedDemonBestStreak ?? 0,
+        durationMs: 60000,
+        verified: true,
+        createdAt: Date.now(),
+      });
+    }
+
     getDocs(
       query(collection(fb.db, "speedDemon_results"), where("uid", "==", user.uid), limit(50))
     )
@@ -161,10 +206,12 @@ function SpeedDemon() {
           ...(d.data() as Omit<SpeedResult, "id">),
         })) as SpeedResult[];
         rows.sort((a, b) => b.score - a.score);
-        setPersonalBest(rows[0] ?? null);
+        if (rows[0] && rows[0].score > 0) {
+          setPersonalBest(rows[0]);
+        }
       })
       .catch(() => {});
-  }, [fb, user]);
+  }, [fb, user, profile?.speedDemonPersonalBest]);
 
   const attempted = correct + wrong + skipped;
   const accuracy = attempted ? Math.round((correct / attempted) * 100) : 0;
@@ -175,7 +222,10 @@ function SpeedDemon() {
     const timer = setInterval(() => {
       const remaining = Math.max(0, durationMs - (Date.now() - startedAt));
       setLeftMs(remaining);
-      if (remaining === 0) void finishMatch();
+      if (remaining === 0) {
+        clearInterval(timer);
+        void finishMatch();
+      }
     }, 100);
     return () => clearInterval(timer);
   }, [phase, startedAt, durationMs]);
@@ -189,22 +239,36 @@ function SpeedDemon() {
 
     if (!fb || !user || !profile) return;
 
-    const attemptedNow = correct + wrong + skipped;
-    const avg = responseTimes.length
-      ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+    // Read current values directly from ref to avoid closure staleness
+    const {
+      score: currentScore,
+      correct: currentCorrect,
+      wrong: currentWrong,
+      skipped: currentSkipped,
+      bestStreak: currentBestStreak,
+      responseTimes: currentTimes,
+      course: currentCourse,
+      personalBest: currentPB,
+    } = stateRef.current;
+
+    const attemptedNow = currentCorrect + currentWrong + currentSkipped;
+    const avg = currentTimes.length
+      ? Math.round(currentTimes.reduce((a, b) => a + b, 0) / currentTimes.length)
       : 0;
+    const finalAccuracy = attemptedNow ? Math.round((currentCorrect / attemptedNow) * 100) : 0;
+
     const payload = {
       uid: user.uid,
       username: profile.username,
-      course,
-      score,
+      course: currentCourse,
+      score: currentScore,
       attempted: attemptedNow,
-      correct,
-      wrong,
-      skipped,
-      accuracy: attemptedNow ? Math.round((correct / attemptedNow) * 100) : 0,
+      correct: currentCorrect,
+      wrong: currentWrong,
+      skipped: currentSkipped,
+      accuracy: finalAccuracy,
       avgResponseMs: avg,
-      bestStreak,
+      bestStreak: currentBestStreak,
       durationMs,
       verified: false,
       createdAt: Date.now(),
@@ -218,27 +282,31 @@ function SpeedDemon() {
         const u = await tx.get(userRef);
         if (!u.exists()) return;
         const data = u.data();
-        const xpGain = correct * 4 + Math.round(score / 10);
+        const xpGain = currentCorrect * 4 + Math.round(currentScore / 10);
         const xp = (data.xp ?? 0) + xpGain;
         const level = Math.max(1, Math.floor(Math.sqrt(xp / 100)) + 1);
         tx.update(userRef, {
           xp,
           level,
           speedDemonMatches: increment(1),
-          speedDemonCorrect: increment(correct),
-          speedDemonBestStreak: Math.max(data.speedDemonBestStreak ?? 0, bestStreak),
-          speedDemonPersonalBest: Math.max(data.speedDemonPersonalBest ?? 0, score),
+          speedDemonCorrect: increment(currentCorrect),
+          speedDemonBestStreak: Math.max(data.speedDemonBestStreak ?? 0, currentBestStreak),
+          speedDemonPersonalBest: Math.max(data.speedDemonPersonalBest ?? 0, currentScore),
         });
         tx.update(doc(fb.db, "speedDemon_results", ref.id), {
           verified: true,
           serverVerifiedAt: Date.now(),
         });
       });
+
       const final = { id: ref.id, ...payload, verified: true } as SpeedResult;
       setResult(final);
-      if (!personalBest || score > personalBest.score) setPersonalBest(final);
+
+      if (!currentPB || currentScore > currentPB.score) {
+        setPersonalBest(final);
+      }
     } catch (error) {
-      toast.error((error as Error).message || "Could not save this verified match.");
+      toast.error((error as Error).message || "Could not save match score.");
     }
   }
 
@@ -322,7 +390,8 @@ function SpeedDemon() {
   }
 
   async function shareResults() {
-    const text = `I scored ${result?.score ?? score} in Speed Demon — ${correct} correct, ${accuracy}% accuracy!`;
+    const finalScore = result?.score ?? score;
+    const text = `I scored ${finalScore} points in Speed Demon — ${correct} correct, ${accuracy}% accuracy!`;
     try {
       if (navigator.share) await navigator.share({ title: "Juvora Speed Demon", text });
       else {
@@ -330,7 +399,7 @@ function SpeedDemon() {
         toast.success("Results copied to clipboard");
       }
     } catch {
-      // User cancelled share
+      // Ignored
     }
   }
 
@@ -345,7 +414,7 @@ function SpeedDemon() {
       ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
       : 0;
     const finalScore = result?.score ?? score;
-    const isNewBest = !!personalBest && finalScore >= personalBest.score;
+    const isNewBest = !personalBest || finalScore >= personalBest.score;
 
     const stats: [string, string | number, ComponentType<{ className?: string }>][] = [
       ["Attempted", correct + wrong + skipped, Brain],
@@ -355,7 +424,7 @@ function SpeedDemon() {
       ["Accuracy", `${accuracy}%`, Flag],
       ["Avg. response", `${(avg / 1000).toFixed(1)}s`, Bolt],
       ["Best streak", bestStreak, Flame],
-      ["PB", personalBest?.score ?? 0, Trophy],
+      ["PB", Math.max(personalBest?.score ?? 0, finalScore), Trophy],
     ];
 
     return (
@@ -368,7 +437,7 @@ function SpeedDemon() {
             Match complete
           </div>
           <h1 className="mt-2 text-5xl font-black tabular-nums">{finalScore}</h1>
-          {isNewBest && (
+          {isNewBest && finalScore > 0 && (
             <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-warning/15 px-3 py-1 text-xs font-bold text-warning">
               <Trophy className="size-3.5" /> Personal best
             </div>
@@ -575,7 +644,7 @@ function SpeedDemon() {
         </Button>
       )}
 
-      {personalBest && (
+      {personalBest && personalBest.score > 0 && (
         <div className="surface-card flex items-center justify-between p-4">
           <div>
             <div className="text-xs text-muted-foreground">Personal best</div>
