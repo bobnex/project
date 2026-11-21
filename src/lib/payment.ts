@@ -11,7 +11,7 @@ export interface PaymentDetails {
 }
 
 export const DEFAULT_PAYMENT: PaymentDetails = {
-  fee: 1000,
+  fee: 500,
   bank: "Opay",
   accountNumber: "8107528980",
   accountName: "Balogun Daniel Ofuje",
