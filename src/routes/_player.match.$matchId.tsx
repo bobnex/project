@@ -431,6 +431,21 @@ function Results({ m, uid }: { m: Match; uid: string }) {
     ? (isChallengerClan ? clanWarSettle.challengerClanTag : clanWarSettle.targetClanTag)
     : "";
 
+  // FIX: build a complete ranked state for the badge. The raw reward patch can
+  // miss `placed`/`placementPlayed` for already-ranked players, which made the
+  // badge fall back to "Unranked · placement 0/5". Merging the final RP and the
+  // placed flag guarantees the real tier always shows after every battle.
+  const rankedBadgeState = reward?.ranked
+    ? {
+        ...reward.ranked.patch,
+        placed: !reward.ranked.inPlacement,
+        rp: reward.ranked.rpAfter,
+        placementPlayed: reward.ranked.inPlacement
+          ? (reward.ranked.patch.placementPlayed ?? 0)
+          : Math.max(reward.ranked.patch.placementPlayed ?? 0, rankedCfg.placementMatches),
+      }
+    : null;
+
   function downloadCard() {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -526,12 +541,12 @@ function Results({ m, uid }: { m: Match; uid: string }) {
           )
         )}
 
-        {!isClanWar && reward?.ranked && (
+        {!isClanWar && reward?.ranked && rankedBadgeState && (
           <div className="bg-muted mt-3 rounded-2xl p-3 text-left">
             {reward.ranked.placementJustFinished && <div className="text-primary mb-1 text-sm font-extrabold">Placement complete — you start at {reward.ranked.rankAfter}!</div>}
             <div className="flex items-center justify-between text-xs font-semibold">
               <span className="text-muted-foreground">Competitive Tier</span>
-              <RankBadge state={reward.ranked.patch} cfg={rankedCfg} showProgress />
+              <RankBadge state={rankedBadgeState} cfg={rankedCfg} showProgress />
             </div>
           </div>
         )}
