@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils";
 
 /** Shows a player's ranked tier, division and progress to the next one. */
 export function RankBadge({ state, cfg, showProgress = false, className }: { state: RankedState; cfg: RankedConfig; showProgress?: boolean; className?: string }) {
-  const hasCompletedPlacement = !!state.placed || (state.placementPlayed ?? 0) >= cfg.placementMatches;
+  // FIX: any player with RP is treated as placed, so a ranked player never
+  // sees "Unranked · placement 0/5" again after a battle.
+  const hasCompletedPlacement = !!state.placed || (state.placementPlayed ?? 0) >= cfg.placementMatches || (state.rp ?? 0) > 0;
 
   if (!hasCompletedPlacement) {
     const played = state.placementPlayed ?? 0;
