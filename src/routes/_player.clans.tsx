@@ -11,6 +11,7 @@ import {
   LogOut,
   Megaphone,
   PlusCircle,
+  RefreshCw,
   Search,
   Shield,
   Sparkles,
@@ -204,7 +205,7 @@ function ClansPage() {
     }
   }
 
-  async function handleClaim(ach: ClanAchievementDef) {
+  async function handleClaim(ach: ClanAchievementDef, isSync = false) {
     if (!fb || !clan || !user) return;
     setClaimingId(ach.id);
     try {
@@ -221,12 +222,17 @@ function ClansPage() {
 
       await updateDoc(clanRef, updateData);
 
-      // 2. If reward is personal coins, credit user profile
+      // 2. Credit personal coins to BOTH the user's main profile and the cosmetic shop wallet
       if (ach.rewardType === "coins" && user.uid) {
-        const profileRef = doc(fb.db, "profiles", user.uid);
-        await updateDoc(profileRef, {
-          coins: increment(Number(ach.rewardValue) || 50),
-        });
+        const coinAmount = Number(ach.rewardValue) || 100;
+
+        // A. Primary user document (read by useApp().profile throughout the app)
+        const userRef = doc(fb.db, "users", user.uid);
+        await setDoc(userRef, { coins: increment(coinAmount) }, { merge: true });
+
+        // B. Cosmetic wallet document (read by the /shop cosmetic store)
+        const walletRef = doc(fb.db, "cosmetic_wallets", user.uid);
+        await setDoc(walletRef, { balance: increment(coinAmount) }, { merge: true });
       }
 
       // 3. Log real clan activity
@@ -238,7 +244,7 @@ function ClansPage() {
         timestamp: Date.now(),
       });
 
-      toast.success(`Acquired ${ach.title}! Spoils: ${ach.rewardLabel}`);
+      toast.success(isSync ? `+${ach.rewardLabel} credited to your balance!` : `Acquired ${ach.title}! +${ach.rewardLabel} credited!`);
     } catch (err: any) {
       toast.error(err.message || "Could not claim reward");
     } finally {
@@ -749,8 +755,6 @@ function ClansPage() {
             ) : (
               pastWars.map((b) => {
                 const isChallenger = b.challengerClanId === clan?.id;
-                const myScore = isChallenger ? (b.challengerScore ?? 0) : (b.targetScore ?? 0);
-                const enemyScore = isChallenger ? (b.targetScore ?? 0) : (b.challengerScore ?? 0);
                 const isWin = b.winnerClanId === clan?.id;
                 const isDraw = b.status === "completed" && !b.winnerClanId;
 
@@ -810,7 +814,7 @@ function ClansPage() {
       {/* TAB 4: ACHIEVEMENTS & TROPHIES */}
       {activeTab === "achievements" && (
         <div className="space-y-5">
-          <div className="p-5 rounded-2xl border border-warning/30 bg-gradient-to-r from-warning/10 via-card/80 to-transparent flex items-center justify-between gap-4">
+          <div className="p-5 rounded-2xl border border-warning/30 bg-gradient-to-r from-warning/10 via-card/80 to-transparent flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-black flex items-center gap-2 text-warning">
                 <Award className="size-5" /> Trophies & Rewards Centre
@@ -819,14 +823,26 @@ function ClansPage() {
                 Climb tiers together. Complete collective clan milestones to earn Juvora Coins, bonus Clan XP, and elite war titles.
               </p>
             </div>
-            {clan && (
-              <div className="text-right shrink-0">
-                <div className="text-xs text-muted-foreground font-semibold">Trophies Unlocked</div>
-                <div className="text-lg font-black text-warning">
-                  {INITIAL_ACHIEVEMENTS.filter((a) => getAchievementProgress(a, clan, members.length).unlocked).length} / {INITIAL_ACHIEVEMENTS.length}
+            
+            <div className="flex items-center gap-3 self-start sm:self-center">
+              {/* Live Coin Balance Pill */}
+              <div className="px-3 py-1.5 rounded-xl bg-card/90 border border-border flex items-center gap-2 shadow-sm">
+                <Coins className="size-4 text-warning" />
+                <div>
+                  <div className="text-[10px] text-muted-foreground font-semibold leading-none">Your Coins</div>
+                  <div className="text-xs font-black text-foreground">{profile?.coins ?? 0}</div>
                 </div>
               </div>
-            )}
+
+              {clan && (
+                <div className="px-3 py-1.5 rounded-xl bg-card/90 border border-border text-right shadow-sm">
+                  <div className="text-[10px] text-muted-foreground font-semibold leading-none">Unlocked</div>
+                  <div className="text-xs font-black text-warning">
+                    {INITIAL_ACHIEVEMENTS.filter((a) => getAchievementProgress(a, clan, members.length).unlocked).length} / {INITIAL_ACHIEVEMENTS.length}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid gap-3.5 sm:grid-cols-2">
@@ -895,22 +911,38 @@ function ClansPage() {
                       Reward: {ach.rewardLabel}
                     </span>
 
+                    {/* Claim Button */}
                     {unlocked && !claimed && clan && (
                       <Button
                         size="sm"
                         variant="secondary"
                         disabled={isClaiming}
                         className="h-7 text-xs font-bold shadow-glow"
-                        onClick={() => handleClaim(ach)}
+                        onClick={() => handleClaim(ach, false)}
                       >
-                        {isClaiming ? "Claiming..." : "Claim Reward"}
+                        {isClaiming ? "Crediting..." : "Claim Reward"}
                       </Button>
                     )}
 
+                    {/* Claimed Indicator with Re-sync option if coins didn't register */}
                     {claimed && (
-                      <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
-                        Claimed ✓
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
+                          Claimed ✓
+                        </span>
+                        {ach.rewardType === "coins" && (
+                          <button
+                            type="button"
+                            onClick={() => handleClaim(ach, true)}
+                            disabled={isClaiming}
+                            title="Click if your coins did not show up previously"
+                            className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5 underline transition-colors"
+                          >
+                            <RefreshCw className={`size-2.5 ${isClaiming ? "animate-spin" : ""}`} />
+                            Sync coins
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {!unlocked && (
