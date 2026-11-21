@@ -1,6 +1,23 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Bell, Clock, DoorOpen, Ghost, HelpCircle, KeyRound, Loader2, Lock, Plus, Search, Settings2, Shield, Sparkles, Swords, Users, Zap } from "lucide-react";
+import {
+  Bell,
+  Clock,
+  DoorOpen,
+  Ghost,
+  HelpCircle,
+  KeyRound,
+  Loader2,
+  Lock,
+  Plus,
+  Search,
+  Settings2,
+  Shield,
+  Sparkles,
+  Swords,
+  Users,
+  Zap,
+} from "lucide-react";
 import { CourseMultiSelect } from "@/components/game/course-multiselect";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,7 +33,8 @@ import { play } from "@/lib/sfx";
 import type { Mode } from "@/lib/game-rules";
 
 export const Route = createFileRoute("/_player/battle")({
-  head: () => pageMeta("Battle Arena", "Find a 1v1 opponent, team up for 2v2 Tag Team or join the 50 Players Rush."),
+  head: () =>
+    pageMeta("Battle Arena", "Find a 1v1 opponent, team up for 2v2 Tag Team, or race the clock in Speed Demon."),
   component: Battle,
 });
 
@@ -40,11 +58,18 @@ export function Battle() {
   const [ghostReady, setGhostReady] = useState(false);
   useEffect(() => () => { cancelRef.current?.(); }, []);
   useEffect(() => {
-    if (!searching) { setWaited(false); setGhostReady(false); return; }
+    if (!searching) {
+      setWaited(false);
+      setGhostReady(false);
+      return;
+    }
     const ghostWaitMs = (settings.ghostWaitSeconds ?? 25) * 1000;
     const t = setTimeout(() => setWaited(true), 10_000);
     const g = setTimeout(() => setGhostReady(true), ghostWaitMs);
-    return () => { clearTimeout(t); clearTimeout(g); };
+    return () => {
+      clearTimeout(t);
+      clearTimeout(g);
+    };
   }, [searching, settings.ghostWaitSeconds]);
 
   if (!fb || !user || !profile) return null;
@@ -53,7 +78,13 @@ export function Battle() {
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
-    try { await fn(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); }
+    try {
+      await fn();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
   }
 
   function openRoomConfig(mode: Mode) {
@@ -78,17 +109,25 @@ export function Battle() {
   async function startSearch() {
     setSearching(true);
     try {
-      cancelRef.current = await findClassicMatch(fb!.db, user!.uid, profile!.username, courses, (id) => {
-        cancelRef.current = null;
-        setSearching(false);
-        play("found");
-        go(id);
-      }, profile!.rp ?? 0);
+      cancelRef.current = await findClassicMatch(
+        fb!.db,
+        user!.uid,
+        profile!.username,
+        courses,
+        (id) => {
+          cancelRef.current = null;
+          setSearching(false);
+          play("found");
+          go(id);
+        },
+        profile!.rp ?? 0
+      );
     } catch (e) {
       setSearching(false);
       toast.error((e as Error).message);
     }
   }
+
   async function cancelSearch() {
     await cancelRef.current?.();
     cancelRef.current = null;
@@ -109,7 +148,7 @@ export function Battle() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Classic */}
+        {/* Classic 1v1 */}
         <div className="hero-card relative overflow-hidden p-5">
           <Swords className="text-primary/10 absolute -top-4 -right-4 size-36" />
           <div className="bg-primary/15 text-primary mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold">
@@ -127,7 +166,7 @@ export function Battle() {
           </div>
         </div>
 
-        {/* Rush */}
+        {/* 50 Players Rush */}
         <div className="hero-card relative overflow-hidden p-5">
           <Zap className="text-accent/15 absolute -top-4 -right-4 size-36" />
           <div className="bg-accent/15 text-accent mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold">
@@ -136,8 +175,13 @@ export function Battle() {
           <h2 className="text-2xl font-extrabold">Last one standing</h2>
           <p className="text-muted-foreground mt-1 text-sm">Up to 50 players · 25 seconds each · 2 wrong answers and you're out</p>
           <div className="mt-5 space-y-3">
-            <Button variant="hero" size="lg" className="w-full" disabled={locked || !!busy}
-              onClick={() => run("rush", async () => go(await joinRush(fb.db, user.uid, profile.username)))}>
+            <Button
+              variant="hero"
+              size="lg"
+              className="w-full"
+              disabled={locked || !!busy}
+              onClick={() => run("rush", async () => go(await joinRush(fb.db, user.uid, profile.username)))}
+            >
               {busy === "rush" ? <Loader2 className="animate-spin" /> : <Users />} Join Rush lobby
             </Button>
             <Button variant="glass" size="lg" className="w-full" disabled={locked || !!busy} onClick={() => openRoomConfig("rush")}>
@@ -147,29 +191,64 @@ export function Battle() {
         </div>
       </div>
 
-      {/* 2v2 Tag Team */}
-      <div className="hero-card relative overflow-hidden p-5">
-        <Shield className="text-primary/10 absolute -top-4 -right-4 size-36" />
-        <div className="relative grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
-          <div>
-            <div className="bg-primary/15 text-primary mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold">
-              <Shield className="size-3.5" /> 2V2 TAG TEAM
-            </div>
-            <h2 className="text-2xl font-extrabold">Team up, sync up</h2>
-            <p className="text-muted-foreground mt-1 text-sm">Two teams of two · 20 questions · combined score wins</p>
-            <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="text-warning size-4" /> Both teammates right = Sync bonus for each</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Speed Demon Mode */}
+        <div className="hero-card relative overflow-hidden p-5 border-destructive/30">
+          <Zap className="text-destructive/15 absolute -top-4 -right-4 size-36" />
+          <div className="bg-destructive/15 text-destructive mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold">
+            <Zap className="size-3.5" /> SPEED DEMON
           </div>
-          <Button variant="hero" size="lg" className="md:w-56" disabled={locked || !!busy} onClick={() => openRoomConfig("duo")}>
-            <Plus /> Create 2v2 room
-          </Button>
+          <h2 className="text-2xl font-extrabold">Solo Blitz Against Clock</h2>
+          <p className="text-muted-foreground mt-1 text-sm">60 seconds · Answer as many as you can · Speed bonus points</p>
+          <div className="mt-5">
+            <Button
+              variant="hero"
+              size="lg"
+              className="w-full"
+              disabled={locked}
+              onClick={() => navigate({ to: "/speed-demon" })}
+            >
+              <Zap className="size-4" /> Enter Speed Demon
+            </Button>
+          </div>
+        </div>
+
+        {/* 2v2 Tag Team */}
+        <div className="hero-card relative overflow-hidden p-5">
+          <Shield className="text-primary/10 absolute -top-4 -right-4 size-36" />
+          <div className="bg-primary/15 text-primary mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold">
+            <Shield className="size-3.5" /> 2V2 TAG TEAM
+          </div>
+          <h2 className="text-2xl font-extrabold">Team up, sync up</h2>
+          <p className="text-muted-foreground mt-1 text-sm">Two teams of two · 20 questions · combined score wins</p>
+          <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
+            <Sparkles className="size-3.5" /> Sync bonus when both teammates answer correctly
+          </p>
+          <div className="mt-5">
+            <Button variant="glass" size="lg" className="w-full" disabled={locked || !!busy} onClick={() => openRoomConfig("duo")}>
+              <Plus /> Create 2v2 room
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Join code */}
       <div className="surface-card p-5">
         <h3 className="flex items-center gap-2 font-bold"><KeyRound className="text-primary size-4" /> Join with a room code</h3>
-        <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); run("code", async () => go(await joinRoomByCode(fb.db, user.uid, profile.username, code))); }}>
-          <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. K7Q2XP" maxLength={6} className="tabular h-12 rounded-xl text-lg tracking-[0.3em] uppercase" />
+        <form
+          className="mt-3 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run("code", async () => go(await joinRoomByCode(fb.db, user.uid, profile.username, code)));
+          }}
+        >
+          <Input
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="e.g. K7Q2XP"
+            maxLength={6}
+            className="tabular h-12 rounded-xl text-lg tracking-[0.3em] uppercase"
+          />
           <Button type="submit" size="lg" disabled={locked || code.length < 6 || !!busy}>
             {busy === "code" ? <Loader2 className="animate-spin" /> : <DoorOpen />} Join
           </Button>
@@ -198,7 +277,6 @@ export function Battle() {
               Scanning for active players in {courses.length ? `${courses.length} selected course(s)` : "all courses"}…
             </p>
 
-            {/* Ring everyone online option (after 10s) */}
             {waited && settings.ringEnabled && (
               <div className="surface-card p-3 space-y-2 animate-in fade-in">
                 <p className="text-xs text-muted-foreground">Waiting for a duel?</p>
@@ -217,7 +295,6 @@ export function Battle() {
               </div>
             )}
 
-            {/* Ghost Rival popup option (after admin-configured ghostWaitSeconds) */}
             {ghostReady && settings.ghostEnabled && (
               <div className="surface-card p-3 space-y-2 animate-in fade-in border-primary/30">
                 <div className="flex items-center justify-center gap-1.5 font-bold text-sm">
@@ -255,18 +332,20 @@ export function Battle() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings2 className="text-primary size-5" />
-              {configureMode === "rush" ? "Private Rush 50 Settings" : configureMode === "duo" ? "Private 2v2 Tag Team Settings" : "Private 1v1 Duel Settings"}
+              {configureMode === "rush"
+                ? "Private Rush 50 Settings"
+                : configureMode === "duo"
+                ? "Private 2v2 Tag Team Settings"
+                : "Private 1v1 Duel Settings"}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Courses */}
             <div className="space-y-1.5">
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Select Course(s)</Label>
               <CourseMultiSelect value={roomCourses} onChange={setRoomCourses} subjects={subjects} />
             </div>
 
-            {/* Seconds per question */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
@@ -292,7 +371,6 @@ export function Battle() {
               />
             </div>
 
-            {/* Number of questions */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
