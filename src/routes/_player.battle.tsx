@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bell,
   Clock,
+  Copy,
   DoorOpen,
   Ghost,
   HelpCircle,
   KeyRound,
+  Link2,
   Loader2,
   Lock,
   Plus,
@@ -53,6 +55,7 @@ export function Battle() {
   const [roomCourses, setRoomCourses] = useState<string[]>([]);
   const [roomSec, setRoomSec] = useState<number>(15);
   const [roomCount, setRoomCount] = useState<number>(20);
+  const [createdRoom, setCreatedRoom] = useState<{ id: string; code: string; mode: Mode } | null>(null);
 
   const [waited, setWaited] = useState(false);
   const [ghostReady, setGhostReady] = useState(false);
@@ -97,13 +100,45 @@ export function Battle() {
   async function handleCreateConfiguredRoom() {
     if (!configureMode || !fb || !user || !profile) return;
     await run("custom-room", async () => {
-      const r = await createRoom(fb.db, user.uid, profile.username, configureMode, roomCourses, {
+      const mode = configureMode;
+      const room = await createRoom(fb.db, user.uid, profile.username, mode, roomCourses, {
         secondsPerQuestion: roomSec,
         questionCount: roomCount,
       });
+      if (!room.code) throw new Error("The room was created without an invite code. Please try again.");
       setConfigureMode(null);
-      go(r.id);
+      setCreatedRoom({ ...room, mode });
     });
+  }
+
+  async function copyRoomCode() {
+    if (!createdRoom) return;
+    try {
+      await navigator.clipboard.writeText(createdRoom.code);
+      toast.success("Room code copied");
+    } catch {
+      toast.error("Could not copy automatically. Select the code above to copy it.");
+    }
+  }
+
+  async function shareRoomInvite() {
+    if (!createdRoom) return;
+    const modeName = createdRoom.mode === "duo" ? "2v2 Tag Team" : createdRoom.mode === "rush" ? "Rush" : "1v1";
+    const text = `Join my private ${modeName} battle on Juvora with room code ${createdRoom.code}.`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Private battle room invite", text });
+        return;
+      } catch {
+        // Sharing can be dismissed by the player; keep the code visible in the dialog.
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Invite copied");
+    } catch {
+      toast.error("Could not copy the invite. Share the room code shown above.");
+    }
   }
 
   async function startSearch() {
@@ -402,6 +437,44 @@ export function Battle() {
             <Button variant="hero" disabled={busy === "custom-room"} onClick={handleCreateConfiguredRoom}>
               {busy === "custom-room" ? <Loader2 className="animate-spin" /> : <Plus />}
               Create Room & Get Code
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Show every newly-created private room's code before entering its waiting room. */}
+      <Dialog open={!!createdRoom}>
+        <DialogContent className="max-w-sm text-center" onEscapeKeyDown={(event) => event.preventDefault()} onPointerDownOutside={(event) => event.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-center gap-2">
+              <KeyRound className="text-primary size-5" /> Private room created
+            </DialogTitle>
+          </DialogHeader>
+          {createdRoom && (
+            <div className="space-y-4 py-3">
+              <p className="text-muted-foreground text-sm">Share this invite code so your friends can join the room.</p>
+              <div className="surface-card tabular rounded-2xl p-4 text-3xl font-black tracking-[0.3em]" aria-label={`Room code ${createdRoom.code}`}>
+                {createdRoom.code}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={copyRoomCode}><Copy className="mr-2 size-4" /> Copy code</Button>
+                <Button variant="outline" onClick={shareRoomInvite}><Link2 className="mr-2 size-4" /> Invite</Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="hero"
+              className="w-full"
+              disabled={!createdRoom}
+              onClick={() => {
+                if (!createdRoom) return;
+                const matchId = createdRoom.id;
+                setCreatedRoom(null);
+                go(matchId);
+              }}
+            >
+              Enter waiting room
             </Button>
           </DialogFooter>
         </DialogContent>
