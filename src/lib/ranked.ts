@@ -261,8 +261,10 @@ export interface RankedState {
 
 export interface SeasonArchive { seasonId: string; finalRp: number; peakSeasonRp: number; wins: number; losses: number; draws: number; rank: string }
 
-export function isRankedPlaced(s: Pick<RankedState, "placed" | "placementPlayed">, cfg: RankedConfig = DEFAULT_RANKED): boolean {
-  return !!s.placed || (s.placementPlayed ?? 0) >= cfg.placementMatches;
+// FIX: a player with any accumulated RP is treated as placed, so they can never
+// fall back into "placement" mode even if the `placed` flag was never written.
+export function isRankedPlaced(s: Pick<RankedState, "placed" | "placementPlayed" | "rp">, cfg: RankedConfig = DEFAULT_RANKED): boolean {
+  return !!s.placed || (s.placementPlayed ?? 0) >= cfg.placementMatches || (s.rp ?? 0) > 0;
 }
 
 /** If the stored season is old, returns the reset patch and an archive of the finished season. */
@@ -340,6 +342,10 @@ export function applyRankedResult(
       placementJustFinished = true;
     }
   } else {
+    // FIX: always carry the placed flag forward so the result patch is complete
+    // and any screen reading only this patch still knows the player is ranked.
+    patch.placed = true;
+    patch.placementPlayed = Math.max(s.placementPlayed ?? 0, cfg.placementMatches);
     if (isRushWin && streak >= cfg.streakBonusFrom) {
       streakBonus = Math.min(cfg.streakBonusMax, (streak - cfg.streakBonusFrom + 1) * cfg.streakBonusRp);
     }
@@ -404,6 +410,6 @@ export function pickOpponent(me: { rp: number; createdAt: number }, entries: Que
 }
 
 /** Placement only runs in ranked battles; once a player is placed, every finished battle moves their RP. */
-export function countsForRank(matchRanked: boolean, s: Pick<RankedState, "placed" | "placementPlayed">, cfg: RankedConfig = DEFAULT_RANKED): boolean {
+export function countsForRank(matchRanked: boolean, s: Pick<RankedState, "placed" | "placementPlayed" | "rp">, cfg: RankedConfig = DEFAULT_RANKED): boolean {
   return matchRanked || isRankedPlaced(s, cfg);
 }
