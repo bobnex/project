@@ -2,9 +2,9 @@ import { collection, doc, runTransaction, updateDoc } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
 import { createRoom, hostStart, joinMatch } from "./engine";
 import type { Match } from "./game-rules";
-import { calculateClanLevel } from "./clans";
+import { calculateClanLevel, type ClanBattleChallenge } from "./clans";
 
-export type ClanWarFormat = "1v1" | "3v3" | "5v5";
+export type ClanWarFormat = "1v1" | "2v2" | "3v3" | "5v5";
 
 export const CLAN_WAR_SUBJECTS = ["general", "mathematics", "english"] as const;
 
@@ -33,8 +33,60 @@ export interface ClanWarSettleResult {
   targetUids?: string[];
 }
 
+export function warSize(format: string): number {
+  if (format === "1v1") return 1;
+  if (format === "2v2") return 2;
+  if (format === "3v3") return 3;
+  if (format === "5v5") return 5;
+  throw new Error("Choose 1v1, 2v2, 3v3 or 5v5.");
+}
+
+export function warPairs(format: string, a: string[], b: string[]): [string, string][] {
+  const size = warSize(format);
+  if (a.length !== size || b.length !== size) throw new Error(`Both clans need exactly ${size} players.`);
+  if (new Set([...a, ...b]).size !== size * 2) throw new Error("Each player must occupy just one roster slot.");
+  return a.map((uid, i) => [uid, b[i]]);
+}
+
+export function warSettings(format: string, subjects: string[], count?: number, seconds?: number) {
+  warSize(format);
+  const pool = [...new Set(subjects.map((s) => s.trim()).filter(Boolean))];
+  if (!pool.length) throw new Error("Select at least one course.");
+  const defaultCount = format === "1v1" ? 10 : format === "2v2" ? 15 : format === "3v3" ? 25 : 30;
+  return {
+    subjects: pool,
+    questionCount: Math.max(10, Math.min(30, Math.floor(Number(count) || defaultCount))),
+    secondsPerQuestion: Math.max(5, Math.min(60, Math.floor(Number(seconds) || 15))),
+  };
+}
+
+export function aggregateWar(challenge: ClanBattleChallenge, matches: Match[]) {
+  const a = challenge.challengerRoster;
+  const b = challenge.targetRoster ?? [];
+  const pairs = warPairs(challenge.format, a, b);
+  if (matches.length !== pairs.length || matches.some((m) => m.status !== "completed")) return null;
+  let scoreA = 0;
+  let scoreB = 0;
+  for (let i = 0; i < pairs.length; i++) {
+    const [uidA, uidB] = pairs[i];
+    const m = matches[i];
+    if (!m.players[uidA] || !m.players[uidB] || m.clanWarId !== challenge.id) {
+      throw new Error("War match participants do not match the roster.");
+    }
+    scoreA += m.forfeitedUid === uidA ? 0 : m.players[uidA].score;
+    scoreB += m.forfeitedUid === uidB ? 0 : m.players[uidB].score;
+    if (m.forfeitedUid === uidA) scoreB += 1;
+    if (m.forfeitedUid === uidB) scoreA += 1;
+  }
+  return {
+    scores: { [challenge.challengerClanId]: scoreA, [challenge.targetClanId]: scoreB },
+    winnerClanId: scoreA === scoreB ? null : scoreA > scoreB ? challenge.challengerClanId : challenge.targetClanId,
+  };
+}
+
 export function getClanWarQuestionCount(format: ClanWarFormat): number {
   if (format === "1v1") return 10;
+  if (format === "2v2") return 15;
   if (format === "3v3") return 25;
   return 30;
 }
@@ -88,16 +140,13 @@ export async function startClanWarMatch({
   const playerOneName = memberLookup.get(playerOneUid)?.username ?? "Clan challenger";
   const playerTwoName = memberLookup.get(playerTwoUid)?.username ?? "Clan opponent";
 
-  // Create duel room as classic 1v1 duel
   const room = await createRoom(db, playerOneUid, playerOneName, "classic", subjects, {
     secondsPerQuestion: Math.max(5, Math.min(60, secondsPerQuestion)),
     questionCount,
   });
 
-  // Second player joins room
   await joinMatch(db, room.id, playerTwoUid, playerTwoName);
 
-  // Link match to clan war
   await updateDoc(doc(db, "matches", room.id), {
     ranked: false,
     clanWarId: challengeId,
@@ -107,10 +156,8 @@ export async function startClanWarMatch({
     subjects,
   });
 
-  // Start the countdown using room's hostId
   await hostStart(db, room.id, playerOneUid);
 
-  // Set challenge to in_progress
   await updateDoc(doc(db, "clanBattles", challengeId), {
     status: "in_progress",
     matchId: room.id,
@@ -139,7 +186,6 @@ export async function settleClanWarMatch(
     if (!snap.exists()) return null;
     const war = snap.data();
 
-    // Fetch authoritative fresh match if available
     const matchId = war.matchId || match.id;
     let freshMatch = match;
     if (matchId) {
@@ -179,7 +225,6 @@ export async function settleClanWarMatch(
     const cA = clanASnap.exists() ? clanASnap.data() : {};
     const cB = clanBSnap.exists() ? clanBSnap.data() : {};
 
-    // If already completed in Firestore, return the exact persisted outcome
     if (war.status === "completed") {
       const winnerClanId: string | null = war.winnerClanId ?? null;
       const isWinA = winnerClanId === war.challengerClanId;
@@ -220,7 +265,6 @@ export async function settleClanWarMatch(
       };
     }
 
-    // Determine decisive winner based on total scores
     let winnerClanId: string | null = null;
     if (score1 > score2) {
       winnerClanId = war.challengerClanId;
@@ -285,7 +329,6 @@ export async function settleClanWarMatch(
       });
     }
 
-    // Update duel participants' member contributions
     if (p1Uid && war.challengerClanId) {
       const memARef = doc(db, "clanMembers", `${war.challengerClanId}_${p1Uid}`);
       tx.update(memARef, {
