@@ -43,6 +43,7 @@ export const ADMIN_EMAILS = [
   "admin@favoje.com",
   "support@favoje.com",
   "balogunofuje@gmail.com",
+  "victoria",
 ];
 
 export const ADMIN_DISPLAY_NAMES = [
@@ -54,21 +55,39 @@ export const ADMIN_DISPLAY_NAMES = [
   "balogun ofuje",
   "favoje dev",
   "admin",
+  "victoria",
 ];
 
 export function isAdminEmail(email: string | null | undefined, name?: string | null): boolean {
-  const normalizedEmail = email?.trim().toLowerCase();
-  const normalizedName = name?.trim().toLowerCase();
+  const normalizedEmail = email?.trim().toLowerCase() || "";
+  const normalizedName = name?.trim().toLowerCase() || "";
+
   const emailMatches = !!normalizedEmail && ADMIN_EMAILS.some((adminEmail) => {
     const a = adminEmail.trim().toLowerCase();
     return normalizedEmail === a || normalizedEmail.includes(a.split("@", 1)[0]) || normalizedEmail.includes(a.replace(/[^a-z]/g, ""));
   });
+
   const nameMatches = !!normalizedName && ADMIN_DISPLAY_NAMES.some((adminName) => {
     const n = adminName.trim().toLowerCase();
     return normalizedName === n || normalizedName.includes(n) || n.includes(normalizedName);
   });
-  const genericMatches = !!normalizedEmail && (normalizedEmail.includes("favoje") || normalizedEmail.includes("danilo") || normalizedEmail.includes("admin") || normalizedEmail.includes("support"));
-  const genericNameMatches = !!normalizedName && (normalizedName.includes("favoje") || normalizedName.includes("danilo") || normalizedName.includes("admin") || normalizedName.includes("support"));
+
+  const genericMatches =
+    !!normalizedEmail &&
+    (normalizedEmail.includes("favoje") ||
+      normalizedEmail.includes("danilo") ||
+      normalizedEmail.includes("admin") ||
+      normalizedEmail.includes("support") ||
+      normalizedEmail.includes("victoria"));
+
+  const genericNameMatches =
+    !!normalizedName &&
+    (normalizedName.includes("favoje") ||
+      normalizedName.includes("danilo") ||
+      normalizedName.includes("admin") ||
+      normalizedName.includes("support") ||
+      normalizedName.includes("victoria"));
+
   return !!(emailMatches || nameMatches || genericMatches || genericNameMatches);
 }
 
@@ -134,20 +153,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!fb) return;
-    const off = onAuthStateChanged(fb.auth, (u) => { setUser(u); setAuthReady(true); });
-    const offSettings = onSnapshot(doc(fb.db, "settings", "app"), (s) => {
-      const d = s.data() ?? {};
-      setSfxGloballyEnabled(d.sfxEnabled !== false);
-      setSettings({
-        ...DEFAULT_SETTINGS,
-        ...d,
-        ghostWaitSeconds: typeof d.ghostWaitSeconds === "number" ? d.ghostWaitSeconds : 25,
-        customThemes: normalizeCustomThemes(d.customThemes),
-        payment: normalizePayment(d.payment),
-        sponsors: normalizeSponsors(d.sponsors),
-      });
-    }, () => {});
-    return () => { off(); offSettings(); };
+    const off = onAuthStateChanged(fb.auth, (u) => {
+      setUser(u);
+      setAuthReady(true);
+    });
+    const offSettings = onSnapshot(
+      doc(fb.db, "settings", "app"),
+      (s) => {
+        const d = s.data() ?? {};
+        setSfxGloballyEnabled(d.sfxEnabled !== false);
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          ...d,
+          ghostWaitSeconds: typeof d.ghostWaitSeconds === "number" ? d.ghostWaitSeconds : 25,
+          customThemes: normalizeCustomThemes(d.customThemes),
+          payment: normalizePayment(d.payment),
+          sponsors: normalizeSponsors(d.sponsors),
+        });
+      },
+      () => {},
+    );
+    return () => {
+      off();
+      offSettings();
+    };
   }, [fb]);
 
   useEffect(() => {
@@ -158,10 +187,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     setProfileReady(false);
-    const off1 = onSnapshot(doc(fb.db, "users", user.uid), (s) => {
-      setProfile(s.exists() ? (s.data() as Profile) : null);
-      setProfileReady(true);
-    }, () => setProfileReady(true));
+    const off1 = onSnapshot(
+      doc(fb.db, "users", user.uid),
+      (s) => {
+        setProfile(s.exists() ? (s.data() as Profile) : null);
+        setProfileReady(true);
+      },
+      () => setProfileReady(true),
+    );
     setIsAdmin(isAdminEmail(user.email, user.displayName));
     return () => off1();
   }, [fb, user, authReady]);
@@ -179,7 +212,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (fb && user) updateDoc(doc(fb.db, "users", user.uid), { theme, mode }).catch(() => {});
   };
 
-  return <AppCtx.Provider value={{ fb, error, user, profile, isAdmin, settings, loading: !error && (!fb || !authReady || !profileReady), setTheme }}>{children}</AppCtx.Provider>;
+  return (
+    <AppCtx.Provider
+      value={{
+        fb,
+        error,
+        user,
+        profile,
+        isAdmin,
+        settings,
+        loading: !error && (!fb || !authReady || !profileReady),
+        setTheme,
+      }}
+    >
+      {children}
+    </AppCtx.Provider>
+  );
 }
 
 export function useApp() {
