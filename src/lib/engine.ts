@@ -1,6 +1,6 @@
 import { getSubjectQuestions } from "./question-cache";
 import { formatCoursePick, parseCoursePick, sameCoursePick } from "./course-pick";
-import { applyRankedResult, countsForRank, seasonRollover, pickOpponent, type RankedOutcome, type RankedState } from "./ranked";
+import { applyRankedResult, countsForRank, seasonRollover, pickOpponent, rankFor, type RankedOutcome, type RankedState } from "./ranked";
 import { getRankedConfig } from "./ranked-store";
 import {
   collection,
@@ -487,7 +487,39 @@ export async function applyResults(
     const us = await tx.get(uRef);
     const m = { id: ms.id, ...(ms.data() as Omit<Match, "id">) };
     const p = m.players[uid];
-    if (m.status !== "completed" || !p || p.applied || !us.exists()) return null;
+    if (m.status !== "completed" || !p || !us.exists()) return null;
+
+    // Return stored reward data on refresh/revisit
+    if (p.applied) {
+      if ((p as any).reward) return (p as any).reward as MatchRewards;
+      const hist = await tx.get(doc(db, "users", uid, "history", matchId));
+      if (hist.exists()) {
+        const hd = hist.data();
+        const currentRp = us.data()?.rp ?? 0;
+        const recordedDelta = hd.rpDelta ?? 0;
+        return {
+          result: hd.result ?? resultFor(m, uid),
+          delta: hd.ratingDelta ?? 0,
+          xpGained: xpFor(hd.result ?? "draw", p.score),
+          coins: coinsFor(hd.result ?? "draw"),
+          ranked: hd.rpDelta !== undefined ? {
+            patch: {},
+            delta: recordedDelta,
+            rpBefore: currentRp - recordedDelta,
+            rpAfter: currentRp,
+            placementJustFinished: false,
+            streakBonus: 0,
+            shielded: false,
+            inPlacement: false,
+            change: "none",
+            rankBefore: hd.rankAfter ?? rankFor(currentRp, cfg).label,
+            rankAfter: hd.rankAfter ?? rankFor(currentRp, cfg).label,
+          } : null,
+        };
+      }
+      return null;
+    }
+
     const u = us.data();
     const result = resultFor(m, uid);
     const xp = (u.xp ?? 0) + xpFor(result, p.score);
@@ -521,7 +553,23 @@ export async function applyResults(
       const { archive } = seasonRollover(u as RankedState, cfg, Date.now());
       if (archive) tx.set(doc(db, "users", uid, "seasons", archive.seasonId), archive);
     }
-    tx.update(mRef, { [`players.${uid}.applied`]: true });
+
+    const finalRewards: MatchRewards = {
+      result,
+      delta,
+      xpGained: xpFor(result, p.score),
+      coins: coinsFor(result),
+      ranked,
+    };
+
+    tx.update(mRef, {
+      [`players.${uid}.applied`]: true,
+      [`players.${uid}.rpDelta`]: ranked?.delta ?? delta,
+      [`players.${uid}.rpAfter`]: ranked?.rpAfter ?? (u.rp ?? 0),
+      [`players.${uid}.rankAfter`]: ranked?.rankAfter ?? rankFor(u.rp ?? 0, cfg).label,
+      [`players.${uid}.reward`]: finalRewards,
+    });
+
     tx.set(doc(db, "users", uid, "history", matchId), {
       mode: m.mode,
       result,
@@ -533,7 +581,7 @@ export async function applyResults(
       ...(ranked ? { rpDelta: ranked.delta, rankAfter: ranked.rankAfter } : {}),
       at: Date.now(),
     });
-    return { result, delta, xpGained: xpFor(result, p.score), coins: coinsFor(result), ranked };
+    return finalRewards;
   });
 }
 
