@@ -52,6 +52,7 @@ export interface Question {
   topic?: string;
   difficulty?: "easy" | "medium" | "hard";
   active: boolean;
+  course?: string;
 }
 
 export interface CreateRoomOptions {
@@ -111,7 +112,21 @@ export async function loadQuestions(db: Firestore, ids: string[], seed?: string)
     ids.map(async (id) => {
       if (!qCache.has(id)) {
         const s = await getDoc(doc(db, "questions", id));
-        if (s.exists()) qCache.set(id, { id, ...(s.data() as Omit<Question, "id">) });
+        if (s.exists()) {
+          const raw = s.data() as Record<string, any>;
+          const qData: Question = {
+            id,
+            text: raw.text || raw.question || "",
+            options: raw.options || [],
+            correctIndex: typeof raw.correctIndex === "number" ? raw.correctIndex : (typeof raw.answer === "number" ? raw.answer : 0),
+            subject: raw.subject || raw.course || "General",
+            course: raw.course || raw.subject || "General",
+            topic: (raw.topic ?? "").trim(),
+            difficulty: raw.difficulty,
+            active: raw.active ?? true,
+          };
+          qCache.set(id, qData);
+        }
       }
       const q = qCache.get(id);
       if (q) out[id] = seed ? shuffleOptions(q, seed) : q;
@@ -268,7 +283,10 @@ export async function createRoom(
 
 export async function joinRoomByCode(db: Firestore, uid: string, name: string, code: string) {
   const clean = code.trim().toUpperCase();
-  const snap = await getDocs(query(collection(db, "matches"), where("lobbyKey", "==", `code_${clean}`), limit(1)));
+  let snap = await getDocs(query(collection(db, "matches"), where("lobbyKey", "==", `code_${clean}`), limit(1)));
+  if (snap.empty) {
+    snap = await getDocs(query(collection(db, "matches"), where("code", "==", clean), where("status", "==", "waiting"), limit(1)));
+  }
   if (snap.empty) throw new Error("No open room with that code.");
   return joinMatch(db, snap.docs[0].id, uid, name);
 }
@@ -346,7 +364,9 @@ export async function joinRush(db: Firestore, uid: string, name: string) {
   }
   const qids = await pickQuestions(db, rushQuestionCount());
   const ref = doc(collection(db, "matches"));
+  const code = roomCode(); // <-- Assign room code so players can share invite code
   const m = baseMatch("rush", uid, qids);
+  m.code = code;
   m.lobbyKey = "rush_public";
   m.ranked = true;
   m.lobbyEndsAt = Date.now() + RUSH_LOBBY_MS;
@@ -452,8 +472,14 @@ export async function settlePending(db: Firestore, uid: string) {
 export interface MatchRewards { result: ReturnType<typeof resultFor>; delta: number; xpGained: number; coins: number; ranked: RankedOutcome | null }
 
 /** Applies the finished match to the player's own stats exactly once, including ranked RP, placement and tier. */
-export async function applyResults(db: Firestore, matchId: string, uid: string): Promise<MatchRewards | null> {
-  const cfg = await getRankedConfig(db);
+export async function applyResults(
+  db: Firestore,
+  matchId: string,
+  uid: string,
+  localMatch?: Match,
+  cfgOverride?: any,
+): Promise<MatchRewards | null> {
+  const cfg = cfgOverride ?? (await getRankedConfig(db));
   const mRef = doc(db, "matches", matchId);
   const uRef = doc(db, "users", uid);
   return runTransaction(db, async (tx) => {
