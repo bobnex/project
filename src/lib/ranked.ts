@@ -60,8 +60,6 @@ export const DEFAULT_RANKED: RankedConfig = {
   streakBonusFrom: 3,
   streakBonusMax: 25,
   demotionShield: 0,
-  seasonNumber: 1,
-  seasonName: "Season 1",
 };
 
 /** Merge a stored (possibly partial) admin config onto defaults. */
@@ -76,19 +74,21 @@ export function rankedConfig(raw: Partial<RankedConfig> | undefined | null): Ran
   }
   const num = (v: unknown, d: number, min = 0) => (Number.isFinite(Number(v)) ? Math.max(min, Number(v)) : d);
 
-  const rawSeasonNum = raw?.seasonNumber ?? (raw as any)?.season ?? c.seasonNumber ?? (c as any)?.season;
+  const rawSeasonNum = raw?.seasonNumber ?? (raw as any)?.season;
   const parsedSeasonNum =
     typeof rawSeasonNum === "number" && rawSeasonNum > 0
       ? Math.floor(rawSeasonNum)
       : Number(rawSeasonNum) > 0
       ? Math.floor(Number(rawSeasonNum))
-      : 1;
+      : undefined;
 
-  const rawSeasonName = raw?.seasonName ?? c.seasonName;
+  const rawSeasonName = raw?.seasonName;
   const parsedSeasonName =
     typeof rawSeasonName === "string" && rawSeasonName.trim()
       ? rawSeasonName.trim()
-      : `Season ${parsedSeasonNum}`;
+      : parsedSeasonNum !== undefined
+      ? `Season ${parsedSeasonNum}`
+      : undefined;
 
   const rawEndsAt = raw?.seasonEndsAt ?? c.seasonEndsAt;
   const parsedEndsAt =
@@ -115,8 +115,8 @@ export function rankedConfig(raw: Partial<RankedConfig> | undefined | null): Ran
     streakBonusFrom: num(c.streakBonusFrom, DEFAULT_RANKED.streakBonusFrom, 1),
     streakBonusMax: num(c.streakBonusMax, DEFAULT_RANKED.streakBonusMax),
     demotionShield: num(c.demotionShield, DEFAULT_RANKED.demotionShield),
-    seasonNumber: parsedSeasonNum,
-    seasonName: parsedSeasonName,
+    ...(parsedSeasonNum !== undefined ? { seasonNumber: parsedSeasonNum } : {}),
+    ...(parsedSeasonName !== undefined ? { seasonName: parsedSeasonName } : {}),
   };
 
   if (parsedStartedAt !== undefined) {
