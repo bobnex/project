@@ -532,7 +532,7 @@ function DuoTeamScoreboard({ m, uid }: { m: Match; uid: string }) {
 /* ---------------- Results Screen ---------------- */
 function Results({ m, uid }: { m: Match; uid: string }) {
   const { fb, user, profile, reloadProfile } = useApp();
-  const { config: rankedCfg } = useRankedConfig();
+  const rankedCfg = useRankedConfig(fb?.db);
   const { membership } = usePlayerClan();
   const [reward, setReward] = useState<MatchRewards | null>(null);
   const [clanWarResult, setClanWarResult] = useState<ClanWarSettleResult | null>(null);
@@ -756,15 +756,44 @@ function Results({ m, uid }: { m: Match; uid: string }) {
         {standings(m).map((id, rank) => {
           const pl = m.players[id];
           const isMe = id === uid;
+          const playerRp = isMe
+            ? currentRp
+            : (pl as any)?.rpAfter ?? (pl as any)?.rp ?? 0;
+          const playerRank = rankFor(playerRp, rankedCfg);
+          const playerDelta = isMe
+            ? rpDelta
+            : (pl as any)?.rpDelta ?? (m.ranked ? (standings(m).indexOf(id) === 0 ? rankedCfg.winRp : -rankedCfg.lossRp) : 0);
+
           return (
             <div key={id} className={cn("flex items-center justify-between p-3", isMe && "bg-primary/5 font-bold")}>
-              <div className="flex items-center gap-3">
-                <span className="text-muted-foreground w-4 text-xs">{rank + 1}</span>
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-muted-foreground w-4 text-xs font-semibold">{rank + 1}</span>
                 <PlayerAvatar name={pl.name} size={32} />
-                <span className="text-sm">{pl.name}</span>
-                {isMe && <span className="text-primary text-xs">(You)</span>}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-semibold">{pl.name}</span>
+                    {isMe && <span className="text-primary text-xs font-semibold">(You)</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span style={{ color: playerRank.tier.color }} className="font-semibold">{playerRank.label}</span>
+                    <span>•</span>
+                    <span className="tabular">{playerRp} RP</span>
+                  </div>
+                </div>
               </div>
-              <span className="tabular font-black">{pl.score} pts</span>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span className="tabular text-sm font-black">{pl.score} pts</span>
+                {m.ranked && (
+                  <span
+                    className={cn(
+                      "rounded-md px-1.5 py-0.5 text-xs font-black tabular",
+                      playerDelta >= 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-destructive/15 text-destructive",
+                    )}
+                  >
+                    {playerDelta >= 0 ? `+${playerDelta}` : playerDelta}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}
