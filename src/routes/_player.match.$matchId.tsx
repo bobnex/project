@@ -1,7 +1,22 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { Check, Coins, Copy, Flag, KeyRound, Medal, Share2, Sparkles, TrendingUp, Trophy, Volume2, VolumeX, Shield, Swords } from "lucide-react";
+import {
+  Check,
+  Coins,
+  Copy,
+  Flag,
+  KeyRound,
+  Medal,
+  Share2,
+  Sparkles,
+  TrendingUp,
+  Trophy,
+  Volume2,
+  VolumeX,
+  Shield,
+  Swords,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -14,10 +29,38 @@ import { settleClanWarMatch, type ClanWarSettleResult } from "@/lib/clan-war";
 import { applyFixtureResult, maybeAdvance } from "@/lib/tournament-engine";
 import { RankBadge } from "@/components/game/RankBadge";
 import { useRankedConfig } from "@/lib/ranked-store";
-import { applyResults, rememberPendingSettle, type MatchRewards, forfeit, hostStart, leaveLobby, loadQuestions, roomCode, submitAnswer, tick, type Question } from "@/lib/engine";
-import { RUSH_MAX_WRONG, alivePlayers, questionMs, resultFor, standings, teamOf, teamScore, type Match, type Team } from "@/lib/game-rules";
+import { rankFor } from "@/lib/ranked";
+import {
+  applyResults,
+  rememberPendingSettle,
+  type MatchRewards,
+  forfeit,
+  hostStart,
+  leaveLobby,
+  loadQuestions,
+  roomCode,
+  submitAnswer,
+  tick,
+  type Question,
+} from "@/lib/engine";
+import {
+  RUSH_MAX_WRONG,
+  alivePlayers,
+  questionMs,
+  resultFor,
+  standings,
+  teamOf,
+  teamScore,
+  type Match,
+  type Team,
+} from "@/lib/game-rules";
 import { play, setSfxGloballyEnabled } from "@/lib/sfx";
-import { buildBattleCardData, buildCardSummaryText, getBattleCardFileName, renderBattleCardPreview } from "@/lib/battle-card";
+import {
+  buildBattleCardData,
+  buildCardSummaryText,
+  getBattleCardFileName,
+  renderBattleCardPreview,
+} from "@/lib/battle-card";
 import { cn } from "@/lib/utils";
 import { usePlayerClan } from "@/lib/clans-store";
 
@@ -25,7 +68,10 @@ export const Route = createFileRoute("/_player/match/$matchId")({
   head: () => ({
     meta: [
       { title: "Live Battle • Juvora" },
-      { name: "description", content: "Compete live in head-to-head quiz battles, Duo team clashes, and high-stakes Rush mode on Juvora." },
+      {
+        name: "description",
+        content: "Compete live in head-to-head quiz battles, Duo team clashes, and high-stakes Rush mode on Juvora.",
+      },
       { property: "og:title", content: "Live Battle • Juvora" },
       { property: "og:description", content: "Compete live in head-to-head quiz battles on Juvora." },
       { property: "og:type", content: "website" },
@@ -52,7 +98,10 @@ function MatchScreen() {
   useEffect(() => {
     if (!fb) return;
     const unsub = onSnapshot(doc(fb.db, "matches", matchId), (s) => {
-      if (!s.exists()) { setMissing(true); return; }
+      if (!s.exists()) {
+        setMissing(true);
+        return;
+      }
       setM({ id: s.id, ...(s.data() as Omit<Match, "id">) });
     });
     return () => unsub();
@@ -73,17 +122,58 @@ function MatchScreen() {
     if (m.status !== "waiting" && m.status !== "completed") tick(fb.db, m.id, m);
   }, [fb, m, now, user]);
 
-  if (missing) return <div className="p-10 text-center">This battle doesn't exist. <Link to="/battle" className="text-primary font-semibold">Back to arena</Link></div>;
+  if (missing) {
+    return (
+      <div className="p-10 text-center">
+        This battle doesn't exist.{" "}
+        <Link to="/battle" className="text-primary font-semibold">
+          Back to arena
+        </Link>
+      </div>
+    );
+  }
   if (!m || !user || !fb) return <FullLoader label="Entering the arena" />;
-  if (m.status === "cancelled") return <div className="p-10 text-center">This room was closed. <Link to="/battle" className="text-primary font-semibold">Back to arena</Link></div>;
-  if (!m.playerIds.includes(user.uid)) return <div className="p-10 text-center">You're not part of this battle. <Link to="/battle" className="text-primary font-semibold">Back to arena</Link></div>;
+  if (m.status === "cancelled") {
+    return (
+      <div className="p-10 text-center">
+        This room was closed.{" "}
+        <Link to="/battle" className="text-primary font-semibold">
+          Back to arena
+        </Link>
+      </div>
+    );
+  }
+  if (!m.playerIds.includes(user.uid)) {
+    return (
+      <div className="p-10 text-center">
+        You're not part of this battle.{" "}
+        <Link to="/battle" className="text-primary font-semibold">
+          Back to arena
+        </Link>
+      </div>
+    );
+  }
 
-  const onLeave = async () => { await leaveLobby(fb.db, m.id, user.uid); navigate({ to: "/battle" }); };
+  const onLeave = async () => {
+    await leaveLobby(fb.db, m.id, user.uid);
+    navigate({ to: "/battle" });
+  };
+
   const screen =
-    m.status === "waiting" ? m.mode === "duo" ? <DuoLobby db={fb.db} m={m} uid={user.uid} onLeave={onLeave} /> : <Lobby m={m} uid={user.uid} now={now} onLeave={onLeave} /> :
-    m.status === "countdown" ? <Countdown m={m} uid={user.uid} now={now} /> :
-    m.status === "completed" ? <Results m={m} uid={user.uid} /> :
-    <Live m={m} uid={user.uid} now={now} qs={qs} />;
+    m.status === "waiting" ? (
+      m.mode === "duo" ? (
+        <DuoLobby db={fb.db} m={m} uid={user.uid} onLeave={onLeave} />
+      ) : (
+        <Lobby m={m} uid={user.uid} now={now} onLeave={onLeave} />
+      )
+    ) : m.status === "countdown" ? (
+      <Countdown m={m} uid={user.uid} now={now} />
+    ) : m.status === "completed" ? (
+      <Results m={m} uid={user.uid} />
+    ) : (
+      <Live m={m} uid={user.uid} now={now} qs={qs} />
+    );
+
   const voice = voiceAvailable(m.mode, m.status) && settings.voiceChatEnabled;
   return (
     <>
@@ -113,7 +203,9 @@ function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; o
     }
   }, [fb, isHost, m.code, m.status, m.id]);
 
-  const start = () => { if (fb) hostStart(fb.db, m.id, uid); };
+  const start = () => {
+    if (fb) hostStart(fb.db, m.id, uid);
+  };
 
   const copyCode = async () => {
     if (!m.code) return;
@@ -182,7 +274,9 @@ function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; o
             <div key={id} className="surface-card flex flex-col items-center gap-2 p-3">
               <PlayerAvatar name={p.name} size={48} />
               <span className="w-full truncate text-xs font-semibold">{p.name}</span>
-              {id === m.hostId && <span className="bg-primary/15 text-primary rounded px-1.5 py-0.5 text-[10px] font-bold">HOST</span>}
+              {id === m.hostId && (
+                <span className="bg-primary/15 text-primary rounded px-1.5 py-0.5 text-[10px] font-bold">HOST</span>
+              )}
             </div>
           );
         })}
@@ -204,7 +298,9 @@ function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; o
 /* ---------------- Countdown ---------------- */
 function Countdown({ m, now }: { m: Match; now: number; uid: string }) {
   const left = Math.max(0, Math.ceil((m.countdownEndsAt - now) / 1000));
-  useEffect(() => { play("tick"); }, [left]);
+  useEffect(() => {
+    play("tick");
+  }, [left]);
   return (
     <div className="mx-auto flex max-w-sm flex-col items-center justify-center gap-4 py-20 text-center">
       <span className="text-muted-foreground text-xs font-bold uppercase tracking-widest">Get ready</span>
@@ -227,10 +323,22 @@ function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Que
   const progress = m.phase === "question" ? (remaining / ms) * 100 : 0;
   const isDuo = m.mode === "duo";
 
+  // Instant optimistic answer state
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+
+  // Reset optimistic choice when moving to another question
+  useEffect(() => {
+    setSelectedIdx(null);
+  }, [m.currentIndex]);
+
+  const hasChosen = selectedIdx !== null || Boolean(myAnswer);
+  const effectiveChoice = selectedIdx !== null ? selectedIdx : myAnswer?.choice;
+
   const onChoose = async (idx: number) => {
-    if (!fb || !q || m.phase !== "question" || myAnswer) return;
+    if (!fb || !q || m.phase !== "question" || hasChosen) return;
     try {
       play("click");
+      setSelectedIdx(idx); // Instant 0ms visual feedback
       await submitAnswer(fb.db, m.id, uid, q, idx);
     } catch {
       /* deadline race */
@@ -309,31 +417,43 @@ function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Que
 
         <div className="grid gap-2.5">
           {q?.options.map((opt, idx) => {
-            const isMine = myAnswer?.choice === idx;
+            const isMine = effectiveChoice === idx;
             const isCorrect = m.phase === "reveal" && idx === q.correctIndex;
             const isWrongMine = m.phase === "reveal" && isMine && !myAnswer?.correct;
 
             let variant = "surface-card hover:border-primary/50";
-            if (isMine && m.phase === "question") variant = "border-primary bg-primary/10 font-semibold";
+            if (isMine && m.phase === "question") {
+              variant = "border-primary bg-primary/15 ring-2 ring-primary/40 font-semibold shadow-sm";
+            }
             if (isCorrect) variant = "border-emerald-500 bg-emerald-500/15 text-emerald-400 font-semibold";
             if (isWrongMine) variant = "border-destructive bg-destructive/15 text-destructive font-semibold";
 
             return (
               <button
                 key={idx}
-                disabled={m.phase !== "question" || Boolean(myAnswer)}
+                disabled={m.phase !== "question" || hasChosen}
                 onClick={() => onChoose(idx)}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-xl border p-4 text-left transition-colors disabled:cursor-default",
+                  "flex w-full items-center justify-between rounded-xl border p-4 text-left transition-all active:scale-[0.99] disabled:cursor-default",
                   variant,
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <span className="bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-lg text-xs font-bold">
+                  <span
+                    className={cn(
+                      "flex size-7 items-center justify-center rounded-lg text-xs font-bold transition-colors",
+                      isMine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                    )}
+                  >
                     {String.fromCharCode(65 + idx)}
                   </span>
                   <span className="text-sm font-medium sm:text-base">{opt}</span>
                 </div>
+                {isMine && m.phase === "question" && (
+                  <span className="text-primary text-xs font-bold uppercase tracking-wider animate-pulse">
+                    Locked
+                  </span>
+                )}
                 {isCorrect && <Check className="size-5 text-emerald-400" />}
               </button>
             );
@@ -382,21 +502,23 @@ function DuoTeamScoreboard({ m, uid }: { m: Match; uid: string }) {
           <div
             key={t}
             className={cn(
-              "surface-card rounded-xl border p-3",
-              isMine ? meta.border : "border-border/60",
+              "surface-card rounded-xl border p-3 transition-colors",
+              isMine ? "border-primary/60 bg-primary/5" : "border-border/60",
             )}
           >
             <div className="flex items-center justify-between">
-              <span className={cn("text-xs font-bold", meta.color)}>{meta.name}</span>
+              <div className="flex items-center gap-2">
+                <span className="size-2.5 rounded-full" style={{ background: meta.color }} />
+                <span className="text-xs font-bold tracking-wide uppercase">{meta.name}</span>
+                {isMine && <span className="text-primary text-[10px] font-semibold">(Your team)</span>}
+              </div>
               <span className="tabular text-lg font-black">{score}</span>
             </div>
-            <div className="mt-2 flex items-center gap-1.5">
+            <div className="mt-2 flex items-center gap-2">
               {members.map((id) => (
-                <div key={id} className="flex items-center gap-1">
-                  <PlayerAvatar name={m.players[id]?.name ?? "P"} size={20} />
-                  <span className="text-[11px] font-medium truncate max-w-[80px]">
-                    {m.players[id]?.name}
-                  </span>
+                <div key={id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <PlayerAvatar name={m.players[id]?.name ?? "Player"} size={18} />
+                  <span className="max-w-[70px] truncate">{m.players[id]?.name}</span>
                 </div>
               ))}
             </div>
@@ -451,8 +573,18 @@ function Results({ m, uid }: { m: Match; uid: string }) {
   const myCpGain = clanWarResult ? (isChallengerClan ? clanWarResult.challengerCpGain : clanWarResult.targetCpGain) : 0;
   const myClanXpGain = clanWarResult ? (isChallengerClan ? clanWarResult.challengerXpGain : clanWarResult.targetXpGain) : 0;
 
+  // Rank status & progression calculation
+  const currentRp = reward?.ranked?.rpAfter ?? (profile?.rp || 0);
+  const rankInfo = rankFor(currentRp, rankedCfg);
+  const rankedOutcome = reward?.ranked;
+  const isPromoted = rankedOutcome?.change === "promoted";
+  const isDemoted = rankedOutcome?.change === "demoted";
+  const isShielded = rankedOutcome?.shielded;
+  const rpDelta = rankedOutcome?.delta ?? reward?.delta ?? 0;
+
   return (
     <div className="surface-card mx-auto max-w-lg space-y-6 p-6 text-center">
+      {/* Header & Result Banner */}
       <div className="flex flex-col items-center gap-2">
         {isClanWar ? (
           <div className="rounded-full bg-primary/10 p-3 text-primary">
@@ -464,7 +596,13 @@ function Results({ m, uid }: { m: Match; uid: string }) {
           </div>
         )}
         <h1 className="text-3xl font-black capitalize">
-          {isClanWar ? (myClanOutcome === "win" ? "Clan Victory!" : myClanOutcome === "draw" ? "War Draw" : "Clan Defeat") : `${myResult}!`}
+          {isClanWar
+            ? myClanOutcome === "win"
+              ? "Clan Victory!"
+              : myClanOutcome === "draw"
+                ? "War Draw"
+                : "Clan Defeat"
+            : `${myResult}!`}
         </h1>
         <p className="text-muted-foreground text-sm">
           {isClanWar
@@ -504,13 +642,113 @@ function Results({ m, uid }: { m: Match; uid: string }) {
             </div>
             <div className="surface-card flex flex-col items-center gap-1 p-3">
               <TrendingUp className="size-5 text-primary" />
-              <span className="text-xs text-muted-foreground font-semibold">RP</span>
-              <span className={cn("text-lg font-black", reward.delta >= 0 ? "text-emerald-400" : "text-destructive")}>
-                {reward.delta >= 0 ? `+${reward.delta}` : reward.delta}
+              <span className="text-xs text-muted-foreground font-semibold">RP Delta</span>
+              <span className={cn("text-lg font-black", rpDelta >= 0 ? "text-emerald-400" : "text-destructive")}>
+                {rpDelta >= 0 ? `+${rpDelta}` : rpDelta}
               </span>
             </div>
           </div>
         )
+      )}
+
+      {/* Ranked Tier & Progression Showcase */}
+      {!isClanWar && (
+        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-b from-card to-background p-5 text-left shadow-md">
+          {/* Promotion Banner */}
+          {isPromoted && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-400">
+              <Trophy className="size-5 shrink-0" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider">Promotion Achieved!</p>
+                <p className="text-sm font-semibold">You advanced to {rankInfo.label}!</p>
+              </div>
+            </div>
+          )}
+
+          {/* Demotion Shield Alert */}
+          {isShielded && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-blue-400">
+              <Shield className="size-5 shrink-0" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider">Demotion Shield Active</p>
+                <p className="text-sm font-semibold">Your rank was protected from falling.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Demotion Notice */}
+          {isDemoted && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+              <Shield className="size-5 shrink-0" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider">Demoted</p>
+                <p className="text-sm font-semibold">Demoted to {rankInfo.label}. Win the next duel to bounce back!</p>
+              </div>
+            </div>
+          )}
+
+          {/* Current Rank Badge & RP Info */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="flex size-12 items-center justify-center rounded-2xl border shadow-inner"
+                style={{
+                  backgroundColor: `${rankInfo.tier.color}15`,
+                  borderColor: `${rankInfo.tier.color}40`,
+                }}
+              >
+                <Shield className="size-7" style={{ color: rankInfo.tier.color, fill: rankInfo.tier.color }} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-black tracking-tight">{rankInfo.label}</span>
+                  {rankedOutcome && (
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-black",
+                        rpDelta >= 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-destructive/15 text-destructive",
+                      )}
+                    >
+                      {rpDelta >= 0 ? `+${rpDelta} RP` : `${rpDelta} RP`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-muted-foreground text-xs font-medium">
+                  {rankedOutcome
+                    ? `${rankedOutcome.rpBefore} RP → ${rankedOutcome.rpAfter} RP`
+                    : `${currentRp} RP Total`}
+                </p>
+              </div>
+            </div>
+
+            {/* Streak Bonus Pill */}
+            {Boolean(rankedOutcome?.streakBonus) && (
+              <div className="flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-bold text-amber-400">
+                <Sparkles className="size-3.5" />
+                +{rankedOutcome?.streakBonus} Streak
+              </div>
+            )}
+          </div>
+
+          {/* Progress to Next Tier */}
+          <div className="mt-4 space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Tier Progress</span>
+              <span className="text-muted-foreground font-bold">
+                {rankInfo.nextAt === null ? "Apex Rank Reached" : `${rankInfo.nextAt - currentRp} RP to Next Division`}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.round(rankInfo.progress * 100)}%`,
+                  backgroundColor: rankInfo.tier.color,
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Standings List */}
