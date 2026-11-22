@@ -26,8 +26,18 @@ function write(key: string, rows: Question[], now: number) {
   try { localStorage.setItem(PREFIX + key, JSON.stringify(v)); } catch {}
 }
 
-function row(id: string, data: Omit<Question, "id">): Question {
-  return { id, ...(data as Omit<Question, "id">) };
+function row(id: string, data: any): Question {
+  return {
+    id,
+    text: data.text || data.question || "",
+    options: data.options || [],
+    correctIndex: typeof data.correctIndex === "number" ? data.correctIndex : (typeof data.answer === "number" ? data.answer : 0),
+    subject: data.subject || data.course || "General",
+    course: data.course || data.subject || "General",
+    topic: (data.topic ?? "").trim(),
+    difficulty: data.difficulty,
+    active: data.active ?? true,
+  };
 }
 
 /** Active questions for one course or a stack of them (empty = every course), cached for 2 hours. */
