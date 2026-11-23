@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc, type Firestore } from "firebase/firestore";
 
 export type AvatarRarity = "common" | "uncommon" | "rare" | "epic" | "legendary" | "mythic";
@@ -12,24 +13,20 @@ export const RARITY_COLORS: Record<AvatarRarity, { text: string; bg: string; bor
 };
 
 export interface AvatarCustomization {
-  // Body & Face
   gender: "masculine" | "feminine" | "neutral";
   skinTone: string; // Hex color
   eyeColor: string; // Hex color
   faceShape: "sharp" | "oval" | "square";
   
-  // Hair
   hairStyleId: string;
   hairColor: string; // Hex color
   facialHairId?: string;
 
-  // Wardrobe & Gear
   outfitId: string; // Torso & legs styling
   shoesId: string;  // Footwear
   headwearId?: string; // Cap, crown, helm, cyber visor
   backBlingId?: string; // Cape, wings, quiver, energy reactor
   
-  // Style & Dynamics
   poseId: string; // idle | victory | combat | levitate | dance
   vfxAuraId?: string; // none | sparks | golden_glow | void_mist | fire_ember
   updatedAt: number;
@@ -42,8 +39,8 @@ export interface AvatarCatalogItem {
   rarity: AvatarRarity;
   priceCoins: number;
   unlockedByDefault?: boolean;
-  modelMesh: string; // Procedural 3D mesh generator key
-  colors?: string[]; // Allowed accent colors
+  modelMesh: string;
+  colors?: string[];
   iconUrl?: string;
   description: string;
 }
@@ -55,71 +52,57 @@ export const DEFAULT_SKIN_TONES = [
   "#c68642", // Warm Ochre
   "#8d5524", // Rich Caramel
   "#513217", // Deep Espresso
-  "#1f2937", // Obsidian Noir (Fantasy)
-  "#6366f1", // Cyber Indigo (Mythic)
+  "#1f2937", // Obsidian Noir
+  "#6366f1", // Cyber Indigo
 ];
 
 export const DEFAULT_HAIR_COLORS = [
-  "#111827", // Jet Black
-  "#4b2e18", // Dark Espresso
-  "#854d0e", // Honey Blonde
-  "#b91c1c", // Crimson Red
-  "#9333ea", // Neon Purple
-  "#06b6d4", // Cyan Frost
-  "#e2e8f0", // Platinum Silver
-  "#eab308", // Cyber Gold
+  "#18181b", // Jet Black
+  "#451a03", // Dark Brunette
+  "#78350f", // Chestnut
+  "#f59e0b", // Gold Blonde
+  "#e11d48", // Crimson Red
+  "#06b6d4", // Neon Cyan
+  "#8b5cf6", // Ultraviolet
+  "#f43f5e", // Sakura Pink
 ];
 
 export const DEFAULT_AVATAR_CONFIG: AvatarCustomization = {
-  gender: "masculine",
-  skinTone: "#c68642",
+  gender: "neutral",
+  skinTone: DEFAULT_SKIN_TONES[1] ?? "#f1c27d",
   eyeColor: "#06b6d4",
   faceShape: "sharp",
   hairStyleId: "hair_fade",
-  hairColor: "#111827",
-  outfitId: "outfit_rookie",
+  hairColor: DEFAULT_HAIR_COLORS[0] ?? "#18181b",
+  outfitId: "outfit_combat_suit",
   shoesId: "shoes_sneakers",
-  headwearId: undefined,
-  backBlingId: undefined,
-  poseId: "pose_idle",
-  vfxAuraId: undefined,
+  headwearId: "none",
+  backBlingId: "none",
+  poseId: "idle",
+  vfxAuraId: "none",
   updatedAt: Date.now(),
 };
 
 export const AVATAR_CATALOG: AvatarCatalogItem[] = [
-  // Hairstyles
-  { id: "hair_fade", category: "hair", name: "Sharp High Fade", rarity: "common", priceCoins: 0, unlockedByDefault: true, modelMesh: "fade", description: "Clean tapered look for combat focus." },
-  { id: "hair_locs", category: "hair", name: "High Bun Locs", rarity: "rare", priceCoins: 150, modelMesh: "locs", description: "Braided warrior bun with gold clasps." },
-  { id: "hair_cyber_spikes", category: "hair", name: "Cyber Spikes", rarity: "epic", priceCoins: 300, modelMesh: "spikes", description: "Gravity-defying neon-tipped spikes." },
-  { id: "hair_sleek_pony", category: "hair", name: "Valkyrie Ponytail", rarity: "uncommon", priceCoins: 100, modelMesh: "ponytail", description: "High swept athletic battle ponytail." },
-  { id: "hair_afro_crown", category: "hair", name: "Afro Apex", rarity: "epic", priceCoins: 350, modelMesh: "afro", description: "Crisp sculptured afro with sharp temple lines." },
-  { id: "hair_divine_mane", category: "hair", name: "Celestial Flow", rarity: "mythic", priceCoins: 1200, modelMesh: "celestial_flow", description: "Glowing animated hair woven from star remnants." },
-
   // Outfits
-  { id: "outfit_rookie", category: "outfit", name: "Juvora Recruit", rarity: "common", priceCoins: 0, unlockedByDefault: true, modelMesh: "cadet", description: "Standard tactical combat suit." },
-  { id: "outfit_stealth_ninja", category: "outfit", name: "Shadow Operative", rarity: "rare", priceCoins: 280, modelMesh: "stealth", description: "Kevlar tactical coat with gold trims." },
-  { id: "outfit_cyber_armor", category: "outfit", name: "Neo-Titan Exosuit", rarity: "epic", priceCoins: 600, modelMesh: "cyber_exosuit", description: "Full reinforced plating with pulsing core." },
-  { id: "outfit_luxury_suit", category: "outfit", name: "Midnight Monarch", rarity: "legendary", priceCoins: 950, modelMesh: "luxury_tux", description: "Velvet tailored trench with gilded lapels." },
-  { id: "outfit_void_lord", category: "outfit", name: "Abyssal Sovereign", rarity: "mythic", priceCoins: 2000, modelMesh: "void_armor", description: "Floating dark matter armor radiating dark violet embers." },
+  { id: "outfit_combat_suit", category: "outfit", name: "Striker Tech Suit", rarity: "common", priceCoins: 0, unlockedByDefault: true, modelMesh: "outfit_basic", description: "Standard tactical combat gear for competitive arena battles." },
+  { id: "outfit_stealth_ninja", category: "outfit", name: "Shadow Shinobi", rarity: "rare", priceCoins: 350, modelMesh: "outfit_ninja", description: "Sleek aerodynamic stealth weave engineered for swift reflexes." },
+  { id: "outfit_cyber_armor", category: "outfit", name: "Cyber Aegis Exo-Suit", rarity: "epic", priceCoins: 750, modelMesh: "outfit_cyber", description: "Heavy cybernetic exoskeleton reinforced with pulsating neon circuits." },
+  { id: "outfit_luxury_suit", category: "outfit", name: "High Roller Tuxedo", rarity: "legendary", priceCoins: 1200, modelMesh: "outfit_luxury", description: "Bespoke gold-trimmed formal attire fit for champion royalty." },
+  { id: "outfit_void_lord", category: "outfit", name: "Nether Void Reaver", rarity: "mythic", priceCoins: 2500, modelMesh: "outfit_void", description: "Forged in the dark matter abyss. Radiates reality-bending energy." },
 
-  // Shoes
-  { id: "shoes_sneakers", category: "shoes", name: "Volt Runners", rarity: "common", priceCoins: 0, unlockedByDefault: true, modelMesh: "runners", description: "Lightweight agile sprint sneakers." },
-  { id: "shoes_boots", category: "shoes", name: "Vanguard Stompers", rarity: "uncommon", priceCoins: 120, modelMesh: "tactical_boots", description: "Heavy combat boots built for battle." },
-  { id: "shoes_hover_kicks", category: "shoes", name: "Aero Gravity Kicks", rarity: "epic", priceCoins: 450, modelMesh: "hover_kicks", description: "Footwear with levitation thrusters." },
+  // Hairstyles
+  { id: "hair_fade", category: "hair", name: "Clean Razor Fade", rarity: "common", priceCoins: 0, unlockedByDefault: true, modelMesh: "hair_fade", description: "Sharp, timeless precision cut." },
+  { id: "hair_cyber_spikes", category: "hair", name: "Cyber Punk Spikes", rarity: "uncommon", priceCoins: 150, modelMesh: "hair_spikes", description: "Electrified neon spiked hair." },
+  { id: "hair_afro_crown", category: "hair", name: "Imperial Afro", rarity: "rare", priceCoins: 300, modelMesh: "hair_afro", description: "Voluminous, majestic silhouette." },
+  { id: "hair_locs", category: "hair", name: "Battle Dreadlocks", rarity: "rare", priceCoins: 300, modelMesh: "hair_locs", description: "Tied back combat dreads with gold rings." },
 
-  // Headwear & Accessories
-  { id: "head_cyber_visor", category: "headwear", name: "Holo Target Visor", rarity: "rare", priceCoins: 220, modelMesh: "holo_visor", description: "Augmented HUD with glowing reticle." },
-  { id: "head_gold_crown", category: "headwear", name: "Imperial Crown", rarity: "legendary", priceCoins: 800, modelMesh: "crown", description: "Ancient solid gold crown encrusted with rubies." },
-  { id: "head_oni_mask", category: "headwear", name: "Oni Spirit Mask", rarity: "epic", priceCoins: 500, modelMesh: "oni_mask", description: "Traditional demonic battle mask." },
+  // Headwear
+  { id: "head_cyber_visor", category: "headwear", name: "HUD Targeting Visor", rarity: "rare", priceCoins: 250, modelMesh: "head_visor", description: "Holographic real-time telemetry optic display." },
+  { id: "head_golden_crown", category: "headwear", name: "Grand Monarch Crown", rarity: "legendary", priceCoins: 1000, modelMesh: "head_crown", description: "Pure 24k solid gold crown adorned with radiant diamonds." },
 
   // Back Bling
-  { id: "back_cyber_wings", category: "backBling", name: "Plasma Wings", rarity: "legendary", priceCoins: 1100, modelMesh: "plasma_wings", description: "Deployable energy wings with trail FX." },
-  { id: "back_katana", category: "backBling", name: "Twin Muramasa", rarity: "epic", priceCoins: 480, modelMesh: "twin_blades", description: "Sheathed duel-master blades." },
-
-  // Poses / Emotes
-  { id: "pose_idle", category: "pose", name: "Battle Ready", rarity: "common", priceCoins: 0, unlockedByDefault: true, modelMesh: "pose_ready", description: "Focused fighter stance." },
-  { id: "pose_victory", category: "pose", name: "Champion's Salute", rarity: "rare", priceCoins: 180, modelMesh: "pose_salute", description: "Triumphant raised fist with posture." },
-  { id: "pose_levitate", category: "pose", name: "Zero-G Transcendence", rarity: "legendary", priceCoins: 750, modelMesh: "pose_levitate", description: "Floats effortlessly above ground." },
+  { id: "back_cyber_wings", category: "backBling", name: "Photon Glider Wings", rarity: "epic", priceCoins: 600, modelMesh: "back_wings", description: "Hard-light holographic jet wings deployed during victory." },
 
   // Visual Effects
   { id: "vfx_gold_sparks", category: "vfx", name: "Gilded Nova", rarity: "epic", priceCoins: 400, modelMesh: "vfx_sparks", description: "Bursting golden sparks surrounding the avatar." },
@@ -150,4 +133,37 @@ export async function savePlayerAvatar(db: Firestore, uid: string, config: Avata
     ...config,
     updatedAt: Date.now(),
   }, { merge: true });
+}
+
+// In-memory cache to guarantee 0 ms delay on lobby re-renders
+const avatarCache = new Map<string, AvatarCustomization>();
+
+/**
+ * Reactive React hook to fetch and cache any player's 3D avatar
+ */
+export function usePlayerAvatar(db: Firestore | undefined, uid: string | undefined): AvatarCustomization {
+  const [avatar, setAvatar] = useState<AvatarCustomization>(() => {
+    if (uid && avatarCache.has(uid)) return avatarCache.get(uid)!;
+    return DEFAULT_AVATAR_CONFIG;
+  });
+
+  useEffect(() => {
+    if (!db || !uid) return;
+    if (avatarCache.has(uid)) {
+      setAvatar(avatarCache.get(uid)!);
+      return;
+    }
+    let cancelled = false;
+    getPlayerAvatar(db, uid).then((res) => {
+      if (!cancelled) {
+        avatarCache.set(uid, res);
+        setAvatar(res);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [db, uid]);
+
+  return avatar;
 }
