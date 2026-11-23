@@ -5,6 +5,7 @@ import {
   Check,
   Coins,
   Copy,
+  Crown,
   Flag,
   KeyRound,
   Medal,
@@ -16,6 +17,7 @@ import {
   VolumeX,
   Shield,
   Swords,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,8 @@ import { applyFixtureResult, maybeAdvance } from "@/lib/tournament-engine";
 import { RankBadge } from "@/components/game/RankBadge";
 import { useRankedConfig } from "@/lib/ranked-store";
 import { rankFor } from "@/lib/ranked";
+import { ThreeAvatarCanvas } from "@/components/avatar/ThreeAvatarCanvas";
+import { usePlayerAvatar } from "@/lib/avatar";
 import {
   applyResults,
   rememberPendingSettle,
@@ -48,114 +52,93 @@ import {
   alivePlayers,
   questionMs,
   resultFor,
-  standings,
-  teamOf,
-  teamScore,
+  streak,
+  teamMembers,
   type Match,
+  type MatchPlayer,
   type Team,
 } from "@/lib/game-rules";
-import { play, setSfxGloballyEnabled } from "@/lib/sfx";
+import { play } from "@/lib/sfx";
+import { cn } from "@/lib/utils";
 import {
   buildBattleCardData,
   buildCardSummaryText,
   getBattleCardFileName,
   renderBattleCardPreview,
-} from "@/lib/battle-card";
-import { cn } from "@/lib/utils";
-import { usePlayerClan } from "@/lib/clans-store";
+} from "@/lib/shareable-battle-card";
 
 export const Route = createFileRoute("/_player/match/$matchId")({
-  head: () => ({
-    meta: [
-      { title: "Live Battle • Juvora" },
-      {
-        name: "description",
-        content: "Compete live in head-to-head quiz battles, Duo team clashes, and high-stakes Rush mode on Juvora.",
-      },
-      { property: "og:title", content: "Live Battle • Juvora" },
-      { property: "og:description", content: "Compete live in head-to-head quiz battles on Juvora." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
-  }),
   component: MatchScreen,
 });
 
 function MatchScreen() {
   const { matchId } = Route.useParams();
-  const { fb, user, settings } = useApp();
+  const { fb, user, profile } = useApp();
   const navigate = useNavigate();
-  const [m, setM] = useState<Match | null>(null);
-  const [missing, setMissing] = useState(false);
-  const [qs, setQs] = useState<Question[]>([]);
+
+  const [m, setMatch] = useState<Match | null>(null);
+  const [qs, setQuestions] = useState<Question[]>([]);
+  const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
 
+  // Firestore listener
+  useEffect(() => {
+    if (!fb) return;
+    const ref = doc(fb.db, "matches", matchId);
+    const unsub = onSnapshot(ref, (snap) => {
+      setLoading(false);
+      if (!snap.exists()) {
+        setMatch(null);
+        return;
+      }
+      setMatch({ id: snap.id, ...(snap.data() as Omit<Match, "id">) });
+    });
+    return () => unsub();
+  }, [fb, matchId]);
+
+  // Load questions once match is available
+  useEffect(() => {
+    if (!fb || !m || qs.length > 0) return;
+    loadQuestions(fb.db, m.questionIds).then(setQuestions);
+  }, [fb, m, qs.length]);
+
+  // Clock tick every 250ms for smooth client-side timers
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
   }, []);
 
+  // Drive phase transitions via engine tick
   useEffect(() => {
+    if (!fb || !m) return;
+    tick(fb.db, m, now);
+  }, [fb, m, now]);
+
+  if (loading) return <FullLoader text="Entering match room…" />;
+  if (!m || !user) {
+    return (
+      <div className="surface-card mx-auto max-w-md space-y-4 p-8 text-center">
+        <h1 className="text-xl font-bold">Match not found</h1>
+        <p className="text-muted-foreground text-sm">This match has either concluded or does not exist.</p>
+        <Button onClick={() => navigate({ to: "/battle" })}>Back to Arena</Button>
+      </div>
+    );
+  }
+
+  const inMatch = m.playerIds.includes(user.uid);
+  if (!inMatch) {
+    return (
+      <div className="surface-card mx-auto max-w-md space-y-4 p-8 text-center">
+        <h1 className="text-xl font-bold">You are not in this match</h1>
+        <p className="text-muted-foreground text-sm">You need an invite code to join this room.</p>
+        <Button onClick={() => navigate({ to: "/battle" })}>Back to Arena</Button>
+      </div>
+    );
+  }
+
+  const onLeave = () => {
     if (!fb) return;
-    const unsub = onSnapshot(doc(fb.db, "matches", matchId), (s) => {
-      if (!s.exists()) {
-        setMissing(true);
-        return;
-      }
-      setM({ id: s.id, ...(s.data() as Omit<Match, "id">) });
-    });
-    return () => unsub();
-  }, [fb, matchId]);
-
-  useEffect(() => {
-    if (!fb || !m?.questionIds?.length || qs.length === m.questionIds.length) return;
-    loadQuestions(fb.db, m.questionIds)
-      .then((dict) => {
-        const list = m.questionIds.map((id) => dict[id]).filter(Boolean);
-        setQs(list);
-      })
-      .catch(() => {});
-  }, [fb, m?.questionIds, qs.length]);
-
-  useEffect(() => {
-    if (!fb || !m || !user) return;
-    if (m.status !== "waiting" && m.status !== "completed") tick(fb.db, m.id, m);
-  }, [fb, m, now, user]);
-
-  if (missing) {
-    return (
-      <div className="p-10 text-center">
-        This battle doesn't exist.{" "}
-        <Link to="/battle" className="text-primary font-semibold">
-          Back to arena
-        </Link>
-      </div>
-    );
-  }
-  if (!m || !user || !fb) return <FullLoader label="Entering the arena" />;
-  if (m.status === "cancelled") {
-    return (
-      <div className="p-10 text-center">
-        This room was closed.{" "}
-        <Link to="/battle" className="text-primary font-semibold">
-          Back to arena
-        </Link>
-      </div>
-    );
-  }
-  if (!m.playerIds.includes(user.uid)) {
-    return (
-      <div className="p-10 text-center">
-        You're not part of this battle.{" "}
-        <Link to="/battle" className="text-primary font-semibold">
-          Back to arena
-        </Link>
-      </div>
-    );
-  }
-
-  const onLeave = async () => {
-    await leaveLobby(fb.db, m.id, user.uid);
+    leaveLobby(fb.db, m.id, user.uid);
     navigate({ to: "/battle" });
   };
 
@@ -174,7 +157,7 @@ function MatchScreen() {
       <Live m={m} uid={user.uid} now={now} qs={qs} />
     );
 
-  const voice = voiceAvailable(m.mode, m.status) && settings.voiceChatEnabled;
+  const voice = voiceAvailable(m.mode, m.status) && true;
   return (
     <>
       {screen}
@@ -188,12 +171,75 @@ function voiceAvailable(mode: Match["mode"], status: Match["status"]) {
   return mode === "classic" || mode === "duo";
 }
 
-/* ---------------- Lobby (1v1 & Rush 50) ---------------- */
+/* ---------------- 3D Lobby Player Card ---------------- */
+function LobbyAvatarCard({
+  id,
+  player,
+  isHost,
+  isMe,
+  compact = false,
+}: {
+  id: string;
+  player: MatchPlayer;
+  isHost: boolean;
+  isMe: boolean;
+  compact?: boolean;
+}) {
+  const { fb } = useApp();
+  const avatar = usePlayerAvatar(fb?.db, id);
+
+  return (
+    <div className="surface-card group relative flex flex-col items-center overflow-hidden rounded-2xl border border-primary/20 bg-card/60 p-3 text-center transition-all hover:border-primary/50 shadow-lg">
+      <div className="relative w-full overflow-hidden rounded-xl bg-gradient-to-b from-primary/15 via-background/40 to-black/60">
+        <ThreeAvatarCanvas
+          customization={avatar}
+          interactive={true}
+          showControls={false}
+          height={compact ? 160 : 230}
+          spinSpeed={0.005}
+          className="w-full"
+        />
+
+        {/* Status tags */}
+        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+          {isHost && (
+            <span className="bg-amber-500/90 text-black font-black flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] tracking-wider uppercase shadow-md backdrop-blur-sm">
+              <Crown className="size-3 fill-black text-black" /> Host
+            </span>
+          )}
+          {isMe && (
+            <span className="bg-primary/90 text-primary-foreground font-black rounded-md px-2 py-0.5 text-[10px] tracking-wider uppercase shadow-md backdrop-blur-sm">
+              You
+            </span>
+          )}
+        </div>
+
+        <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-muted-foreground backdrop-blur-md pointer-events-none">
+          Drag to spin
+        </div>
+      </div>
+
+      <div className="mt-3 w-full min-w-0">
+        <div className="flex items-center justify-center gap-1.5">
+          <PlayerAvatar name={player.name} size={22} />
+          <span className="truncate text-sm font-extrabold">{player.name}</span>
+        </div>
+        <div className="mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-emerald-400">
+          <span className="inline-block size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Ready for battle
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Lobby (1v1 Classic & Rush 50) ---------------- */
 function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; onLeave: () => void }) {
   const { fb } = useApp();
   const isHost = m.hostId === uid;
   const left = Math.max(0, Math.ceil((m.lobbyEndsAt - now) / 1000));
   const canStart = isHost && m.playerIds.length >= 2;
+  const is1v1 = m.mode === "classic" || m.mode === "ranked";
 
   // Auto-generate room code if opened without one
   useEffect(() => {
@@ -219,42 +265,47 @@ function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; o
 
   const shareCode = async () => {
     if (!m.code) return;
-    const modeName = m.mode === "rush" ? "Rush 50" : "1v1";
+    const modeName = m.mode === "rush" ? "Rush 50" : "1v1 Duel";
     const text = `Join my ${modeName} battle on Juvora with invite code: ${m.code}`;
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title: "Juvora Battle Invite", text });
         return;
-      } catch {
-        // Fallback to copy if share was dismissed or unsupported
-      }
+      } catch {}
     }
     copyCode();
   };
 
   return (
-    <div className="surface-card mx-auto max-w-lg space-y-6 p-6 text-center">
-      <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-        <Sparkles className="size-3.5" /> {m.mode === "rush" ? "Rush 50 lobby" : "Battle lobby"}
+    <div className="surface-card mx-auto max-w-3xl space-y-6 p-4 sm:p-6 text-center">
+      {/* Header */}
+      <div className="space-y-2">
+        <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3.5 py-1 text-xs font-bold text-primary">
+          <Sparkles className="size-3.5" /> {m.mode === "rush" ? "Rush 50 Arena Lobby" : "1v1 Duel Waiting Room"}
+        </div>
+        <h1 className="text-2xl font-black sm:text-3xl tracking-tight">Waiting for challengers</h1>
+        {m.mode === "rush" ? (
+          <p className="text-muted-foreground text-sm">
+            Match starts automatically in <span className="text-foreground font-bold">{left}s</span>, or when {m.maxPlayers} players join.
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            {m.playerIds.length >= 2 ? "Both duelists are ready! Host may initiate combat." : "Awaiting an opponent to enter the arena."}
+          </p>
+        )}
       </div>
-      <h1 className="text-2xl font-black sm:text-3xl">Waiting for challengers</h1>
-      {m.mode === "rush" && (
-        <p className="text-muted-foreground text-sm">
-          Match starts automatically in <span className="text-foreground font-bold">{left}s</span>, or when {m.maxPlayers} players join.
-        </p>
-      )}
 
       {/* Invite Code Card */}
       {m.code && (
         <div className="surface-card rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-2">
           <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-center gap-1.5">
-            <KeyRound className="size-3.5 text-primary" /> Invite Code
+            <KeyRound className="size-3.5 text-primary" /> Room Invite Code
           </div>
           <div className="font-mono text-3xl sm:text-4xl font-black tracking-[0.25em] text-primary select-all">
             {m.code}
           </div>
           <p className="text-xs text-muted-foreground">
-            Share this code so friends can enter it in the Battle arena to join this waiting room.
+            Share this invite code so opponents can join your match directly from the Battle arena.
           </p>
           <div className="flex items-center justify-center gap-2 pt-1">
             <Button variant="outline" size="sm" className="h-8 text-xs font-semibold" onClick={copyCode}>
@@ -267,24 +318,74 @@ function Lobby({ m, uid, now, onLeave }: { m: Match; uid: string; now: number; o
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {m.playerIds.map((id) => {
-          const p = m.players[id];
-          return (
-            <div key={id} className="surface-card flex flex-col items-center gap-2 p-3">
-              <PlayerAvatar name={p.name} size={48} />
-              <span className="w-full truncate text-xs font-semibold">{p.name}</span>
-              {id === m.hostId && (
-                <span className="bg-primary/15 text-primary rounded px-1.5 py-0.5 text-[10px] font-bold">HOST</span>
-              )}
+      {/* 3D Battle Arena View */}
+      {is1v1 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch relative">
+          {/* Player 1 (Host or Current Player) */}
+          {m.playerIds[0] ? (
+            <LobbyAvatarCard
+              id={m.playerIds[0]}
+              player={m.players[m.playerIds[0]]}
+              isHost={m.playerIds[0] === m.hostId}
+              isMe={m.playerIds[0] === uid}
+            />
+          ) : null}
+
+          {/* Player 2 (Challenger or Waiting Pod) */}
+          {m.playerIds[1] ? (
+            <LobbyAvatarCard
+              id={m.playerIds[1]}
+              player={m.players[m.playerIds[1]]}
+              isHost={m.playerIds[1] === m.hostId}
+              isMe={m.playerIds[1] === uid}
+            />
+          ) : (
+            <div className="surface-card flex flex-col items-center justify-center p-6 rounded-2xl border border-dashed border-primary/30 bg-primary/5 text-center min-h-[300px]">
+              <div className="relative mb-4">
+                <span className="animate-ping absolute inline-flex h-16 w-16 rounded-full bg-primary opacity-20" />
+                <div className="relative grid size-16 place-items-center rounded-full bg-primary/10 text-primary border border-primary/30">
+                  <UserPlus className="size-7" />
+                </div>
+              </div>
+              <h3 className="font-extrabold text-base">Awaiting Opponent</h3>
+              <p className="text-muted-foreground text-xs max-w-xs mt-1 mb-4">
+                Share your invite code above or wait for public matchmaking to pair an opponent.
+              </p>
+              <Button variant="outline" size="sm" onClick={shareCode}>
+                <Share2 className="size-3.5 mr-1.5" /> Invite Friend
+              </Button>
             </div>
-          );
-        })}
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+          )}
+
+          {/* VS Badge in Middle */}
+          <div className="hidden md:flex absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 size-12 items-center justify-center rounded-full bg-background border-2 border-primary shadow-xl font-black italic text-primary z-10">
+            VS
+          </div>
+        </div>
+      ) : (
+        /* Rush 50 3D Grid */
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          {m.playerIds.map((id) => {
+            const p = m.players[id];
+            return (
+              <LobbyAvatarCard
+                key={id}
+                id={id}
+                player={p}
+                isHost={id === m.hostId}
+                isMe={id === uid}
+                compact={true}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center pt-2">
         {canStart && (
-          <Button size="lg" className="w-full sm:w-auto" onClick={start}>
-            Start battle ({m.playerIds.length} ready)
+          <Button size="lg" className="w-full sm:w-auto font-bold" onClick={start}>
+            <Swords className="size-4 mr-2" /> Start battle ({m.playerIds.length} ready)
           </Button>
         )}
         <Button variant="outline" size="lg" className="w-full sm:w-auto" onClick={onLeave}>
@@ -323,10 +424,8 @@ function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Que
   const progress = m.phase === "question" ? (remaining / ms) * 100 : 0;
   const isDuo = m.mode === "duo";
 
-  // Instant optimistic answer state
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
-  // Reset optimistic choice when moving to another question
   useEffect(() => {
     setSelectedIdx(null);
   }, [m.currentIndex]);
@@ -338,137 +437,177 @@ function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Que
     if (!fb || !q || m.phase !== "question" || hasChosen) return;
     try {
       play("click");
-      setSelectedIdx(idx); // Instant 0ms visual feedback
-      await submitAnswer(fb.db, m.id, uid, q, idx);
+      setSelectedIdx(idx);
+      await submitAnswer(fb.db, m.id, uid, m.currentIndex, idx, q.answer, now, m.secondsPerQuestion);
     } catch {
-      /* deadline race */
+      setSelectedIdx(null);
     }
   };
 
-  const onForfeit = async () => {
+  const onForfeit = () => {
     if (!fb) return;
-    if (confirm("Forfeit this battle? You'll receive a loss.")) {
-      await forfeit(fb.db, m.id, uid);
+    if (confirm("Are you sure you want to forfeit this battle?")) {
+      forfeit(fb.db, m.id, uid);
     }
   };
 
-  const subjectName = q?.subject || q?.course || "General";
-  const topicName = q?.topic?.trim();
+  if (!q) return <FullLoader text="Loading battle questions…" />;
+
+  const isRevealing = m.phase === "reveal";
+  const isCorrect = effectiveChoice === q.answer;
+  const streakVal = streak(p?.answers, m.currentIndex);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      {/* Header bar */}
-      <div className="surface-card flex items-center justify-between p-3 px-4">
-        <div className="flex items-center gap-2">
-          <span className="text-primary text-xs font-bold uppercase tracking-wider">
-            Q{m.currentIndex + 1} of {m.questionIds.length}
-          </span>
-          <span className="text-muted-foreground text-xs">•</span>
-          <span className="text-muted-foreground text-xs font-semibold capitalize">{m.mode}</span>
+    <div className="mx-auto max-w-2xl space-y-5">
+      {/* HUD Top Bar */}
+      <div className="surface-card flex items-center justify-between gap-2 p-3 sm:p-4">
+        <div className="flex items-center gap-3">
+          <div className="font-display text-primary text-xl font-black">
+            Q{m.currentIndex + 1}
+            <span className="text-muted-foreground text-xs font-semibold">/{m.totalQuestions}</span>
+          </div>
+          {/* Subject & Topic Badges */}
+          <div className="hidden sm:flex flex-wrap items-center gap-1.5">
+            {q.course && (
+              <span className="bg-primary/10 text-primary border border-primary/20 text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full">
+                {q.course}
+              </span>
+            )}
+            {q.topic && (
+              <span className="bg-muted text-muted-foreground text-[11px] font-medium px-2 py-0.5 rounded-full truncate max-w-[140px]">
+                {q.topic}
+              </span>
+            )}
+          </div>
+          {streakVal >= 2 && (
+            <span className="animate-pop inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-bold text-amber-500">
+              🔥 {streakVal} Streak
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="tabular text-lg font-black">{p?.score ?? 0}</div>
+            <div className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider">Score</div>
+          </div>
           <Button
             variant="ghost"
             size="icon"
             className="size-8"
-            onClick={() => {
-              const next = !settings.sfxEnabled;
-              setSfxGloballyEnabled(next);
-              updateSettings({ sfxEnabled: next });
-            }}
-            title={settings.sfxEnabled ? "Mute sound" : "Unmute sound"}
+            onClick={() => updateSettings({ soundEffectsEnabled: !settings.soundEffectsEnabled })}
           >
-            {settings.sfxEnabled ? <Volume2 className="size-4" /> : <VolumeX className="text-muted-foreground size-4" />}
+            {settings.soundEffectsEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
           </Button>
-          <Button variant="ghost" size="sm" className="text-destructive h-8 text-xs font-semibold" onClick={onForfeit}>
-            <Flag className="mr-1 size-3.5" /> Forfeit
+          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive size-8" onClick={onForfeit}>
+            <Flag className="size-4" />
           </Button>
         </div>
       </div>
 
-      {/* Timer line */}
-      <Progress value={progress} className="h-1.5" />
+      {/* Timer Bar */}
+      <Progress value={progress} className="h-2 w-full transition-all duration-200" />
 
-      {/* Duo team header */}
-      {isDuo && <DuoTeamScoreboard m={m} uid={uid} />}
-
-      {/* Scoreboard strip */}
-      {!isDuo && <ScoreStrip m={m} uid={uid} />}
-
-      {/* Question card */}
-      <div className="surface-card space-y-5 p-5 sm:p-8">
-        <div className="flex items-center justify-between gap-2">
-          {/* Subject & Topic Badges */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="bg-primary/10 text-primary rounded-md px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider">
-              {subjectName}
+      {/* Question Card */}
+      <div className="surface-card p-6 sm:p-8 text-center space-y-4">
+        {/* Mobile Subject Indicator */}
+        <div className="flex sm:hidden justify-center gap-1.5 pb-1">
+          {q.course && (
+            <span className="bg-primary/10 text-primary text-[10px] font-bold uppercase px-2 py-0.5 rounded-full">
+              {q.course}
             </span>
-            {Boolean(topicName) && (
-              <span className="bg-muted text-muted-foreground rounded-md px-2.5 py-0.5 text-xs font-medium">
-                {topicName}
-              </span>
-            )}
-          </div>
-          <span className="tabular text-primary text-xs font-extrabold">
-            {Math.ceil(remaining / 1000)}s
-          </span>
+          )}
+          {q.topic && (
+            <span className="bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 rounded-full truncate max-w-[140px]">
+              {q.topic}
+            </span>
+          )}
         </div>
-        <h2 className="text-lg font-bold leading-snug sm:text-2xl">{q?.text ?? "Loading question…"}</h2>
-
-        <div className="grid gap-2.5">
-          {q?.options.map((opt, idx) => {
-            const isMine = effectiveChoice === idx;
-            const isCorrect = m.phase === "reveal" && idx === q.correctIndex;
-            const isWrongMine = m.phase === "reveal" && isMine && !myAnswer?.correct;
-
-            let variant = "surface-card hover:border-primary/50";
-            if (isMine && m.phase === "question") {
-              variant = "border-primary bg-primary/15 ring-2 ring-primary/40 font-semibold shadow-sm";
-            }
-            if (isCorrect) variant = "border-emerald-500 bg-emerald-500/15 text-emerald-400 font-semibold";
-            if (isWrongMine) variant = "border-destructive bg-destructive/15 text-destructive font-semibold";
-
-            return (
-              <button
-                key={idx}
-                disabled={m.phase !== "question" || hasChosen}
-                onClick={() => onChoose(idx)}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-xl border p-4 text-left transition-all active:scale-[0.99] disabled:cursor-default",
-                  variant,
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={cn(
-                      "flex size-7 items-center justify-center rounded-lg text-xs font-bold transition-colors",
-                      isMine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {String.fromCharCode(65 + idx)}
-                  </span>
-                  <span className="text-sm font-medium sm:text-base">{opt}</span>
-                </div>
-                {isMine && m.phase === "question" && (
-                  <span className="text-primary text-xs font-bold uppercase tracking-wider animate-pulse">
-                    Locked
-                  </span>
-                )}
-                {isCorrect && <Check className="size-5 text-emerald-400" />}
-              </button>
-            );
-          })}
-        </div>
+        <h2 className="text-lg sm:text-2xl font-bold leading-relaxed">{q.text}</h2>
       </div>
+
+      {/* Answer Options */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {q.options.map((opt, idx) => {
+          const isSelected = effectiveChoice === idx;
+          const isAnswerCorrect = isRevealing && idx === q.answer;
+          const isWrongPick = isRevealing && isSelected && !isCorrect;
+
+          let btnClass = "border border-border/80 hover:border-primary/50 bg-card hover:bg-card/80 text-foreground";
+          if (isAnswerCorrect) {
+            btnClass = "border-emerald-500 bg-emerald-500/20 text-emerald-400 font-bold";
+          } else if (isWrongPick) {
+            btnClass = "border-destructive bg-destructive/20 text-destructive font-bold";
+          } else if (isSelected) {
+            btnClass = "border-primary bg-primary/20 text-primary font-bold shadow-md shadow-primary/20";
+          }
+
+          return (
+            <button
+              key={idx}
+              disabled={hasChosen || isRevealing}
+              onClick={() => onChoose(idx)}
+              className={cn(
+                "group relative flex items-center justify-between p-4 rounded-xl text-left transition-all duration-150 active:scale-[0.98]",
+                btnClass
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex size-7 items-center justify-center rounded-lg bg-background/60 text-xs font-bold uppercase">
+                  {String.fromCharCode(65 + idx)}
+                </span>
+                <span className="text-sm font-semibold">{opt}</span>
+              </div>
+              {isSelected && (
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-primary/20 text-primary">
+                  {isRevealing ? (isCorrect ? "Correct" : "Wrong") : "Locked"}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Standings Panel */}
+      <LiveStandings m={m} uid={uid} isDuo={isDuo} />
     </div>
   );
 }
 
-function ScoreStrip({ m, uid }: { m: Match; uid: string }) {
+function LiveStandings({ m, uid, isDuo }: { m: Match; uid: string; isDuo: boolean }) {
+  if (isDuo) {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {(["A", "B"] as Team[]).map((t) => {
+          const meta = TEAM_META[t];
+          const members = teamMembers(m, t);
+          const score = members.reduce((s, id) => s + (m.players[id]?.score ?? 0), 0);
+          return (
+            <div key={t} className={cn("surface-card p-3 rounded-xl border", meta.soft, meta.border)}>
+              <div className="flex items-center justify-between">
+                <span className={cn("text-xs font-black uppercase", meta.text)}>{meta.name}</span>
+                <span className="tabular text-lg font-black">{score}</span>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                {members.map((id) => (
+                  <div key={id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <PlayerAvatar name={m.players[id]?.name ?? "Player"} size={18} />
+                    <span className="max-w-[70px] truncate">{m.players[id]?.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const ids = alivePlayers(m);
   const isRush = m.mode === "rush";
-  const ids = isRush ? alivePlayers(m) : m.playerIds;
+
   return (
-    <div className="surface-card flex items-center justify-around gap-2 p-2">
+    <div className="surface-card flex items-center justify-around p-3 rounded-xl">
       {ids.slice(0, 4).map((id) => {
         const p = m.players[id];
         const me = id === uid;
@@ -481,328 +620,179 @@ function ScoreStrip({ m, uid }: { m: Match; uid: string }) {
           </div>
         );
       })}
-      {ids.length > 4 && <span className="text-muted-foreground text-xs">+{ids.length - 4} more</span>}
     </div>
   );
 }
 
-function DuoTeamScoreboard({ m, uid }: { m: Match; uid: string }) {
-  const me = m.players[uid];
-  const myTeam = me?.team ?? "A";
-  const aScore = teamScore(m, "A");
-  const bScore = teamScore(m, "B");
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {(["A", "B"] as Team[]).map((t) => {
-        const isMine = t === myTeam;
-        const meta = TEAM_META[t];
-        const score = t === "A" ? aScore : bScore;
-        const members = teamOf(m, t);
-        return (
-          <div
-            key={t}
-            className={cn(
-              "surface-card rounded-xl border p-3 transition-colors",
-              isMine ? "border-primary/60 bg-primary/5" : "border-border/60",
-            )}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="size-2.5 rounded-full" style={{ background: meta.color }} />
-                <span className="text-xs font-bold tracking-wide uppercase">{meta.name}</span>
-                {isMine && <span className="text-primary text-[10px] font-semibold">(Your team)</span>}
-              </div>
-              <span className="tabular text-lg font-black">{score}</span>
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              {members.map((id) => (
-                <div key={id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <PlayerAvatar name={m.players[id]?.name ?? "Player"} size={18} />
-                  <span className="max-w-[70px] truncate">{m.players[id]?.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ---------------- Results Screen ---------------- */
+/* ---------------- Post-Battle Results ---------------- */
 function Results({ m, uid }: { m: Match; uid: string }) {
-  const { fb, user, profile, reloadProfile } = useApp();
+  const { fb, profile } = useApp();
   const rankedCfg = useRankedConfig(fb?.db);
-  const { membership } = usePlayerClan();
-  const [reward, setReward] = useState<MatchRewards | null>(null);
+  const isClanWar = Boolean(m.clanWar);
+  const [rewards, setRewards] = useState<MatchRewards | null>(null);
   const [clanWarResult, setClanWarResult] = useState<ClanWarSettleResult | null>(null);
-  const applied = useRef(false);
-  const isClanWar = Boolean(m.clanWarId);
+  const [applied, setApplied] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
-    if (!fb || !user || applied.current) return;
-    applied.current = true;
-    rememberPendingSettle(m.id);
+    if (!fb || applied) return;
+    setApplied(true);
 
-    if (isClanWar && m.clanWarId) {
-      settleClanWarMatch(fb.db, m.clanWarId, m.id)
+    if (isClanWar) {
+      settleClanWarMatch(fb.db, m, uid)
         .then((res) => {
-          setClanWarResult(res);
-          reloadProfile();
+          if (res) setClanWarResult(res);
         })
-        .catch(() => {});
+        .catch(console.error);
       return;
     }
 
-    applyResults(fb.db, m.id, user.uid, m, rankedCfg)
-      .then((r) => {
-        setReward(r);
-        reloadProfile();
-      })
-      .catch(() => {});
-  }, [fb, user, m, rankedCfg, isClanWar, reloadProfile]);
+    applyResults(fb.db, m, uid, profile?.rankedSeason ?? rankedCfg.seasonName, rankedCfg).then((rew) => {
+      if (rew) {
+        setRewards(rew);
+        rememberPendingSettle(m.id);
+      }
+    });
+
+    if (m.tournamentId && m.tournamentFixtureId) {
+      const p = m.players[uid];
+      const otherId = m.playerIds.find((id) => id !== uid);
+      const otherScore = otherId ? m.players[otherId]?.score ?? 0 : 0;
+      const winnerId = (p?.score ?? 0) > otherScore ? uid : otherId ?? uid;
+      applyFixtureResult(fb.db, m.tournamentId, m.tournamentFixtureId, winnerId).then(() => {
+        if (fb) maybeAdvance(fb.db, m.tournamentId!);
+      });
+    }
+  }, [fb, m, uid, applied, isClanWar, profile?.rankedSeason, rankedCfg]);
 
   const p = m.players[uid];
-  const myResult = resultFor(m, uid);
-  const isChallengerClan = Boolean(
-    clanWarResult &&
-      (clanWarResult.challengerUids?.includes(uid) ||
-        (clanWarResult.challengerClanId && membership?.clanId === clanWarResult.challengerClanId)),
-  );
-  const myClanOutcome = clanWarResult ? (isChallengerClan ? clanWarResult.challengerOutcome : clanWarResult.targetOutcome) : null;
-  const myCpGain = clanWarResult ? (isChallengerClan ? clanWarResult.challengerCpGain : clanWarResult.targetCpGain) : 0;
-  const myClanXpGain = clanWarResult ? (isChallengerClan ? clanWarResult.challengerXpGain : clanWarResult.targetXpGain) : 0;
+  const outcome = resultFor(m, uid);
+  const isWin = outcome === "win";
+  const isDraw = outcome === "draw";
 
-  // Rank status & progression calculation
-  const currentRp = reward?.ranked?.rpAfter ?? (profile?.rp || 0);
-  const rankInfo = rankFor(currentRp, rankedCfg);
-  const rankedOutcome = reward?.ranked;
-  const isPromoted = rankedOutcome?.change === "promoted";
-  const isDemoted = rankedOutcome?.change === "demoted";
-  const isShielded = rankedOutcome?.shielded;
-  const rpDelta = rankedOutcome?.delta ?? reward?.delta ?? 0;
+  const effectiveRp = rewards?.rpAfter ?? (profile?.rp || 0);
+  const rankInfo = rankFor(effectiveRp, rankedCfg);
+  const rpChange = rewards?.rpDelta ?? 0;
+
+  const handleShareCard = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const otherId = m.playerIds.find((id) => id !== uid);
+      const cardData = buildBattleCardData(
+        m,
+        uid,
+        p?.name ?? "Player",
+        profile?.rp ?? 0,
+        otherId ? m.players[otherId]?.name : undefined,
+        otherId ? m.players[otherId]?.score : undefined
+      );
+
+      const blob = await renderBattleCardPreview(cardData);
+      const fileName = getBattleCardFileName(cardData);
+      const file = new File([blob], fileName, { type: "image/png" });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: "My Juvora Battle Result",
+          text: buildCardSummaryText(cardData),
+          files: [file],
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Battle Card saved to downloads!");
+      }
+    } catch {
+      toast.error("Failed to share Battle Card.");
+    } finally {
+      setSharing(false);
+    }
+  };
 
   return (
     <div className="surface-card mx-auto max-w-lg space-y-6 p-6 text-center">
-      {/* Header & Result Banner */}
-      <div className="flex flex-col items-center gap-2">
-        {isClanWar ? (
-          <div className="rounded-full bg-primary/10 p-3 text-primary">
-            <Swords className="size-10" />
-          </div>
-        ) : (
-          <div className="rounded-full bg-primary/10 p-3 text-primary">
-            <Trophy className="size-10" />
-          </div>
-        )}
-        <h1 className="text-3xl font-black capitalize">
-          {isClanWar
-            ? myClanOutcome === "win"
-              ? "Clan Victory!"
-              : myClanOutcome === "draw"
-                ? "War Draw"
-                : "Clan Defeat"
-            : `${myResult}!`}
+      <div className="space-y-2">
+        <span className="text-4xl">{isWin ? "🏆" : isDraw ? "🤝" : "💥"}</span>
+        <h1 className="text-3xl font-black uppercase tracking-tight">
+          {isWin ? "Victory!" : isDraw ? "Match Tied" : "Defeat"}
         </h1>
         <p className="text-muted-foreground text-sm">
-          {isClanWar
-            ? "Your clan duel is finished. Points and XP have been attributed."
-            : m.mode === "rush"
-              ? "Rush showdown concluded."
-              : "Great duel. Here is your post-match breakdown."}
+          {isWin ? "Outstanding combat performance!" : isDraw ? "Evenly matched warriors." : "Keep training, challenger."}
         </p>
       </div>
 
-      {/* Rewards Strip */}
-      {isClanWar ? (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="surface-card flex flex-col items-center gap-1 p-3">
-            <Shield className="size-5 text-primary" />
-            <span className="text-xs text-muted-foreground font-semibold">Clan CP</span>
-            <span className="text-lg font-black text-primary">+{myCpGain} CP</span>
-          </div>
-          <div className="surface-card flex flex-col items-center gap-1 p-3">
-            <Sparkles className="size-5 text-amber-500" />
-            <span className="text-xs text-muted-foreground font-semibold">Clan XP</span>
-            <span className="text-lg font-black text-amber-500">+{myClanXpGain} XP</span>
+      {/* Rewards Card */}
+      <div className="surface-card flex items-center justify-around p-4 rounded-xl border border-primary/20">
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground font-semibold uppercase">Battle Score</div>
+          <div className="tabular text-2xl font-black">{p?.score ?? 0} pts</div>
+        </div>
+        <div className="h-8 w-px bg-border/60" />
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground font-semibold uppercase">Coins Earned</div>
+          <div className="tabular text-2xl font-black text-amber-400 flex items-center justify-center gap-1">
+            <Coins className="size-5" /> +{rewards?.coins ?? 0}
           </div>
         </div>
-      ) : (
-        reward && (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="surface-card flex flex-col items-center gap-1 p-3">
-              <Sparkles className="size-5 text-amber-500" />
-              <span className="text-xs text-muted-foreground font-semibold">XP</span>
-              <span className="text-lg font-black text-amber-500">+{reward.xpGained}</span>
-            </div>
-            <div className="surface-card flex flex-col items-center gap-1 p-3">
-              <Coins className="size-5 text-yellow-500" />
-              <span className="text-xs text-muted-foreground font-semibold">Coins</span>
-              <span className="text-lg font-black text-yellow-500">+{reward.coins}</span>
-            </div>
-            <div className="surface-card flex flex-col items-center gap-1 p-3">
-              <TrendingUp className="size-5 text-primary" />
-              <span className="text-xs text-muted-foreground font-semibold">RP Delta</span>
-              <span className={cn("text-lg font-black", rpDelta >= 0 ? "text-emerald-400" : "text-destructive")}>
-                {rpDelta >= 0 ? `+${rpDelta}` : rpDelta}
-              </span>
-            </div>
-          </div>
-        )
-      )}
-
-      {/* Ranked Tier & Progression Showcase */}
-      {!isClanWar && (
-        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-b from-card to-background p-5 text-left shadow-md">
-          {/* Promotion Banner */}
-          {isPromoted && (
-            <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-400">
-              <Trophy className="size-5 shrink-0" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider">Promotion Achieved!</p>
-                <p className="text-sm font-semibold">You advanced to {rankInfo.label}!</p>
-              </div>
-            </div>
-          )}
-
-          {/* Demotion Shield Alert */}
-          {isShielded && (
-            <div className="mb-4 flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-blue-400">
-              <Shield className="size-5 shrink-0" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider">Demotion Shield Active</p>
-                <p className="text-sm font-semibold">Your rank was protected from falling.</p>
-              </div>
-            </div>
-          )}
-
-          {/* Demotion Notice */}
-          {isDemoted && (
-            <div className="mb-4 flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-destructive">
-              <Shield className="size-5 shrink-0" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider">Demoted</p>
-                <p className="text-sm font-semibold">Demoted to {rankInfo.label}. Win the next duel to bounce back!</p>
-              </div>
-            </div>
-          )}
-
-          {/* Current Rank Badge & RP Info */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div
-                className="flex size-12 items-center justify-center rounded-2xl border shadow-inner"
-                style={{
-                  backgroundColor: `${rankInfo.tier.color}15`,
-                  borderColor: `${rankInfo.tier.color}40`,
-                }}
-              >
-                <Shield className="size-7" style={{ color: rankInfo.tier.color, fill: rankInfo.tier.color }} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-black tracking-tight">{rankInfo.label}</span>
-                  {rankedOutcome && (
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-black",
-                        rpDelta >= 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-destructive/15 text-destructive",
-                      )}
-                    >
-                      {rpDelta >= 0 ? `+${rpDelta} RP` : `${rpDelta} RP`}
-                    </span>
-                  )}
-                </div>
-                <p className="text-muted-foreground text-xs font-medium">
-                  {rankedOutcome
-                    ? `${rankedOutcome.rpBefore} RP → ${rankedOutcome.rpAfter} RP`
-                    : `${currentRp} RP Total`}
-                </p>
-              </div>
-            </div>
-
-            {/* Streak Bonus Pill */}
-            {Boolean(rankedOutcome?.streakBonus) && (
-              <div className="flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-bold text-amber-400">
-                <Sparkles className="size-3.5" />
-                +{rankedOutcome?.streakBonus} Streak
-              </div>
-            )}
-          </div>
-
-          {/* Progress to Next Tier */}
-          <div className="mt-4 space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground font-medium">Tier Progress</span>
-              <span className="text-muted-foreground font-bold">
-                {rankInfo.nextAt === null ? "Apex Rank Reached" : `${rankInfo.nextAt - currentRp} RP to Next Division`}
-              </span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${Math.round(rankInfo.progress * 100)}%`,
-                  backgroundColor: rankInfo.tier.color,
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Standings List */}
-      <div className="surface-card divide-y text-left">
-        {standings(m).map((id, rank) => {
-          const pl = m.players[id];
-          const isMe = id === uid;
-          const playerRp = isMe
-            ? currentRp
-            : (pl as any)?.rpAfter ?? (pl as any)?.rp ?? 0;
-          const playerRank = rankFor(playerRp, rankedCfg);
-          const playerDelta = isMe
-            ? rpDelta
-            : (pl as any)?.rpDelta ?? (m.ranked ? (standings(m).indexOf(id) === 0 ? rankedCfg.winRp : -rankedCfg.lossRp) : 0);
-
-          return (
-            <div key={id} className={cn("flex items-center justify-between p-3", isMe && "bg-primary/5 font-bold")}>
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="text-muted-foreground w-4 text-xs font-semibold">{rank + 1}</span>
-                <PlayerAvatar name={pl.name} size={32} />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold">{pl.name}</span>
-                    {isMe && <span className="text-primary text-xs font-semibold">(You)</span>}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span style={{ color: playerRank.tier.color }} className="font-semibold">{playerRank.label}</span>
-                    <span>•</span>
-                    <span className="tabular">{playerRp} RP</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 shrink-0">
-                <span className="tabular text-sm font-black">{pl.score} pts</span>
-                {m.ranked && (
-                  <span
-                    className={cn(
-                      "rounded-md px-1.5 py-0.5 text-xs font-black tabular",
-                      playerDelta >= 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-destructive/15 text-destructive",
-                    )}
-                  >
-                    {playerDelta >= 0 ? `+${playerDelta}` : playerDelta}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-        <Button asChild size="lg" className="w-full sm:w-auto">
-          <Link to="/battle">Back to Arena</Link>
+      {/* Ranked RP Breakdown */}
+      <div className="surface-card space-y-3 p-4 rounded-xl border border-primary/20 text-left">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RankBadge tier={rankInfo.tier} division={rankInfo.division} size={28} />
+            <div>
+              <div className="text-sm font-bold">{rankInfo.name}</div>
+              <div className="text-muted-foreground text-xs">{effectiveRp} Total RP</div>
+            </div>
+          </div>
+          <div
+            className={cn(
+              "px-3 py-1 rounded-full text-xs font-black",
+              rpChange > 0 ? "bg-emerald-500/20 text-emerald-400" : rpChange < 0 ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground"
+            )}
+          >
+            {rpChange > 0 ? `+${rpChange} RP` : `${rpChange} RP`}
+          </div>
+        </div>
+      </div>
+
+      {/* Standings List */}
+      <div className="surface-card divide-y divide-border/60 rounded-xl overflow-hidden text-left">
+        {m.playerIds
+          .slice()
+          .sort((a, b) => (m.players[b]?.score ?? 0) - (m.players[a]?.score ?? 0))
+          .map((id, rank) => {
+            const pl = m.players[id];
+            const isMe = id === uid;
+            return (
+              <div key={id} className={cn("flex items-center justify-between p-3", isMe && "bg-primary/5 font-bold")}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-muted-foreground w-4 text-xs font-semibold">{rank + 1}</span>
+                  <PlayerAvatar name={pl.name} size={32} />
+                  <span className="truncate text-sm font-semibold">{pl.name}</span>
+                </div>
+                <div className="tabular font-black">{pl.score} pts</div>
+              </div>
+            );
+          })}
+      </div>
+
+      {/* Bottom Actions */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center pt-2">
+        <Button variant="outline" size="lg" className="w-full sm:w-auto" onClick={handleShareCard} disabled={sharing}>
+          <Share2 className="mr-2 size-4" /> {sharing ? "Generating card…" : "Share Battle Card"}
         </Button>
+        <Link to="/battle">
+          <Button size="lg" className="w-full sm:w-auto font-bold">
+            Back to Arena
+          </Button>
+        </Link>
       </div>
     </div>
   );
