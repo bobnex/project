@@ -1,14 +1,48 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { AvatarCustomization } from "@/lib/avatar";
+import { DEFAULT_AVATAR_CONFIG, type AvatarCustomization } from "@/lib/avatar";
 
 interface ThreeAvatarCanvasProps {
-  customization: AvatarCustomization;
+  customization?: AvatarCustomization | null;
   interactive?: boolean;
   showControls?: boolean;
   height?: number | string;
   zoom?: number;
   className?: string;
   spinSpeed?: number;
+}
+
+/**
+ * Normalizes rounded rectangle drawing to ensure negative widths/heights
+ * or older browser canvas implementations never throw an IndexSizeError.
+ */
+function drawSafeRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number
+) {
+  let nx = x;
+  let ny = y;
+  let nw = w;
+  let nh = h;
+
+  if (nw < 0) {
+    nx += nw;
+    nw = Math.abs(nw);
+  }
+  if (nh < 0) {
+    ny += nh;
+    nh = Math.abs(nh);
+  }
+
+  const r = Math.min(radius, nw / 2, nh / 2);
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(nx, ny, nw, nh, r);
+  } else {
+    ctx.rect(nx, ny, nw, nh);
+  }
 }
 
 /**
@@ -31,6 +65,9 @@ export function ThreeAvatarCanvas({
   const [currentZoom, setCurrentZoom] = useState(zoom);
   const isDragging = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
+
+  // Safe fallback to prevent crashes if custom config is still loading
+  const config = { ...DEFAULT_AVATAR_CONFIG, ...(customization || {}) };
 
   const displayControls = showControls ?? (interactive && typeof height === "number" && height >= 320);
 
@@ -113,10 +150,10 @@ export function ThreeAvatarCanvas({
       ctx.fill();
 
       // Aura Particles (if equipped)
-      if (customization.vfxAuraId && customization.vfxAuraId !== "none") {
+      if (config.vfxAuraId && config.vfxAuraId !== "none") {
         const particleCount = 20;
         const auraColor =
-          customization.vfxAuraId === "vfx_gold_sparks"
+          config.vfxAuraId === "vfx_gold_sparks"
             ? "rgba(234, 179, 8, "
             : "rgba(168, 85, 247, ";
 
@@ -148,26 +185,26 @@ export function ThreeAvatarCanvas({
       let outfitBottomColor = "#1f2937";
       let accentColor = "#a855f7";
 
-      if (customization.outfitId === "outfit_stealth_ninja") {
+      if (config.outfitId === "outfit_stealth_ninja") {
         outfitTopColor = "#111827";
         outfitBottomColor = "#0f172a";
         accentColor = "#eab308";
-      } else if (customization.outfitId === "outfit_cyber_armor") {
+      } else if (config.outfitId === "outfit_cyber_armor") {
         outfitTopColor = "#1e1b4b";
         outfitBottomColor = "#312e81";
         accentColor = "#06b6d4";
-      } else if (customization.outfitId === "outfit_luxury_suit") {
+      } else if (config.outfitId === "outfit_luxury_suit") {
         outfitTopColor = "#2e1065";
         outfitBottomColor = "#1e1b4b";
         accentColor = "#f59e0b";
-      } else if (customization.outfitId === "outfit_void_lord") {
+      } else if (config.outfitId === "outfit_void_lord") {
         outfitTopColor = "#09090b";
         outfitBottomColor = "#18181b";
         accentColor = "#f43f5e";
       }
 
       // Back Bling / Wings (rendered behind torso if facing camera)
-      if (customization.backBlingId === "back_cyber_wings") {
+      if (config.backBlingId === "back_cyber_wings") {
         ctx.save();
         ctx.fillStyle = cosY > 0 ? "rgba(6, 182, 212, 0.75)" : "rgba(6, 182, 212, 0.9)";
         ctx.strokeStyle = "#22d3ee";
@@ -203,14 +240,14 @@ export function ThreeAvatarCanvas({
       ctx.fillRect(8 - sinY * 5, 45, 20, 80);
 
       // Footwear
-      ctx.fillStyle = customization.shoesId === "shoes_cyber_boots" ? accentColor : "#111827";
+      ctx.fillStyle = config.shoesId === "shoes_cyber_boots" ? accentColor : "#111827";
       ctx.fillRect(-30 + sinY * 5, 115, 24, 18);
       ctx.fillRect(6 - sinY * 5, 115, 24, 18);
 
       // 2. Torso & Armor
       ctx.fillStyle = outfitTopColor;
       ctx.beginPath();
-      ctx.roundRect(-35, -45, 70, 95, 12);
+      drawSafeRoundRect(ctx, -35, -45, 70, 95, 12);
       ctx.fill();
 
       // Armor chestplate accent
@@ -231,7 +268,7 @@ export function ThreeAvatarCanvas({
       ctx.rotate(0.15 + sinY * 0.1);
       ctx.fillRect(-12, 0, 16, 75);
       // Hand
-      ctx.fillStyle = customization.skinTone;
+      ctx.fillStyle = config.skinTone;
       ctx.beginPath();
       ctx.arc(-4, 82, 9, 0, Math.PI * 2);
       ctx.fill();
@@ -244,7 +281,7 @@ export function ThreeAvatarCanvas({
       ctx.fillStyle = outfitTopColor;
       ctx.fillRect(-4, 0, 16, 75);
       // Hand
-      ctx.fillStyle = customization.skinTone;
+      ctx.fillStyle = config.skinTone;
       ctx.beginPath();
       ctx.arc(4, 82, 9, 0, Math.PI * 2);
       ctx.fill();
@@ -256,7 +293,7 @@ export function ThreeAvatarCanvas({
       ctx.rotate(rotationX * 0.5);
 
       // Neck
-      ctx.fillStyle = customization.skinTone;
+      ctx.fillStyle = config.skinTone;
       ctx.fillRect(-10, -18, 20, 20);
 
       // Head Base
@@ -264,10 +301,10 @@ export function ThreeAvatarCanvas({
       ctx.ellipse(0 * cosY, -52, 28, 34, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Facial Features (Only rendered when facing towards the camera)
+      // Facial Features (Rendered when facing camera)
       if (cosY > -0.2) {
         // Eyes
-        ctx.fillStyle = customization.eyeColor;
+        ctx.fillStyle = config.eyeColor;
         const eyeOffset = 11 * cosY;
         ctx.beginPath();
         ctx.arc(-eyeOffset, -54, 3.5, 0, Math.PI * 2);
@@ -275,19 +312,20 @@ export function ThreeAvatarCanvas({
         ctx.fill();
 
         // Cyber Visor / Headwear
-        if (customization.headwearId === "head_cyber_visor") {
+        if (config.headwearId === "head_cyber_visor") {
           ctx.fillStyle = "rgba(6, 182, 212, 0.9)";
           ctx.strokeStyle = "#22d3ee";
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.roundRect(-24 * cosY, -60, 48 * cosY, 14, 4);
+          const visorW = Math.max(8, Math.abs(48 * cosY));
+          drawSafeRoundRect(ctx, -visorW / 2, -60, visorW, 14, 4);
           ctx.fill();
           ctx.stroke();
         }
       }
 
       // Crown / Helm Headwear
-      if (customization.headwearId === "head_golden_crown") {
+      if (config.headwearId === "head_golden_crown") {
         ctx.fillStyle = "#fbbf24";
         ctx.beginPath();
         ctx.moveTo(-22, -26);
@@ -302,12 +340,12 @@ export function ThreeAvatarCanvas({
       }
 
       // Hairstyle Meshes
-      ctx.fillStyle = customization.hairColor;
-      if (customization.hairStyleId === "hair_fade") {
+      ctx.fillStyle = config.hairColor;
+      if (config.hairStyleId === "hair_fade") {
         ctx.beginPath();
         ctx.arc(0, -14, 25, Math.PI, 0);
         ctx.fill();
-      } else if (customization.hairStyleId === "hair_cyber_spikes") {
+      } else if (config.hairStyleId === "hair_cyber_spikes") {
         ctx.beginPath();
         ctx.moveTo(-24, -20);
         ctx.lineTo(-15, -45);
@@ -318,11 +356,11 @@ export function ThreeAvatarCanvas({
         ctx.lineTo(24, -20);
         ctx.closePath();
         ctx.fill();
-      } else if (customization.hairStyleId === "hair_afro_crown") {
+      } else if (config.hairStyleId === "hair_afro_crown") {
         ctx.beginPath();
         ctx.arc(0, -22, 34, 0, Math.PI * 2);
         ctx.fill();
-      } else if (customization.hairStyleId === "hair_locs") {
+      } else if (config.hairStyleId === "hair_locs") {
         ctx.beginPath();
         ctx.arc(0, -28, 16, 0, Math.PI * 2);
         ctx.fill();
@@ -337,7 +375,7 @@ export function ThreeAvatarCanvas({
 
     render();
     return () => cancelAnimationFrame(animId);
-  }, [customization, rotationY, rotationX, currentZoom, interactive, spinSpeed]);
+  }, [config.skinTone, config.hairColor, config.eyeColor, config.outfitId, config.shoesId, config.headwearId, config.backBlingId, config.vfxAuraId, config.hairStyleId, rotationY, rotationX, currentZoom, interactive, spinSpeed]);
 
   return (
     <div
@@ -346,13 +384,13 @@ export function ThreeAvatarCanvas({
     >
       <canvas
         ref={canvasRef}
-        width={600}
-        height={600}
+        width={500}
+        height={500}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onWheel={handleWheel}
-        className="w-full h-full cursor-grab active:cursor-grabbing block"
+        className="w-full h-full cursor-grab active:cursor-grabbing block object-contain"
       />
 
       {displayControls && (
