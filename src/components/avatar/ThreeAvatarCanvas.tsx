@@ -4,6 +4,7 @@ import type { AvatarCustomization } from "@/lib/avatar";
 interface ThreeAvatarCanvasProps {
   customization: AvatarCustomization;
   interactive?: boolean;
+  showControls?: boolean;
   height?: number | string;
   zoom?: number;
   className?: string;
@@ -18,6 +19,7 @@ interface ThreeAvatarCanvasProps {
 export function ThreeAvatarCanvas({
   customization,
   interactive = true,
+  showControls,
   height = 480,
   zoom = 1,
   className = "",
@@ -29,6 +31,8 @@ export function ThreeAvatarCanvas({
   const [currentZoom, setCurrentZoom] = useState(zoom);
   const isDragging = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
+
+  const displayControls = showControls ?? (interactive && typeof height === "number" && height >= 320);
 
   // Handle touch and mouse rotation
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -108,15 +112,18 @@ export function ThreeAvatarCanvas({
       ctx.ellipse(centerX, centerY + 160 * scale, 130 * scale, 35 * scale, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Active Aura VFX particles
-      if (customization.vfxAuraId) {
-        const auraColor = customization.vfxAuraId.includes("gold")
-          ? "rgba(234, 179, 8, "
-          : "rgba(168, 85, 247, ";
-        for (let i = 0; i < 14; i++) {
-          const t = (frame * 0.03 + (i * Math.PI) / 7) % (Math.PI * 2);
-          const pRadius = (60 + Math.sin(t * 3) * 20) * scale;
-          const px = centerX + Math.cos(t + localRotationY) * pRadius;
+      // Aura Particles (if equipped)
+      if (customization.vfxAuraId && customization.vfxAuraId !== "none") {
+        const particleCount = 20;
+        const auraColor =
+          customization.vfxAuraId === "vfx_gold_sparks"
+            ? "rgba(234, 179, 8, "
+            : "rgba(168, 85, 247, ";
+
+        for (let i = 0; i < particleCount; i++) {
+          const t = frame * 0.04 + i * (Math.PI * 2 / particleCount);
+          const r = (60 + Math.sin(t * 3) * 20) * scale;
+          const px = centerX + Math.cos(t) * r;
           const py = centerY + 140 * scale - ((frame * 2 + i * 35) % (300 * scale));
           const alpha = Math.max(0, 1 - (centerY + 140 * scale - py) / (300 * scale));
 
@@ -163,120 +170,124 @@ export function ThreeAvatarCanvas({
       if (customization.backBlingId === "back_cyber_wings") {
         ctx.save();
         ctx.fillStyle = cosY > 0 ? "rgba(6, 182, 212, 0.75)" : "rgba(6, 182, 212, 0.9)";
+        ctx.strokeStyle = "#22d3ee";
+        ctx.lineWidth = 3;
+
+        // Wing Left
         ctx.beginPath();
-        // Left Wing
-        ctx.moveTo(-15 * cosY, -30);
-        ctx.lineTo(-85 * cosY - 40, -100);
-        ctx.lineTo(-60 * cosY - 20, -10);
+        ctx.moveTo(-20 * cosY, -30);
+        ctx.lineTo(-90 * cosY, -90);
+        ctx.lineTo(-65 * cosY, -20);
+        ctx.lineTo(-20 * cosY, 10);
         ctx.closePath();
         ctx.fill();
-        // Right Wing
+        ctx.stroke();
+
+        // Wing Right
         ctx.beginPath();
-        ctx.moveTo(15 * cosY, -30);
-        ctx.lineTo(85 * cosY + 40, -100);
-        ctx.lineTo(60 * cosY + 20, -10);
+        ctx.moveTo(20 * cosY, -30);
+        ctx.lineTo(90 * cosY, -90);
+        ctx.lineTo(65 * cosY, -20);
+        ctx.lineTo(20 * cosY, 10);
         ctx.closePath();
         ctx.fill();
+        ctx.stroke();
         ctx.restore();
       }
 
-      // Legs / Pants
+      // 1. Legs & Shoes
       ctx.fillStyle = outfitBottomColor;
-      ctx.fillRect(-22, 35, 18, 90);
-      ctx.fillRect(4, 35, 18, 90);
+      // Left Leg
+      ctx.fillRect(-28 + sinY * 5, 45, 20, 80);
+      // Right Leg
+      ctx.fillRect(8 - sinY * 5, 45, 20, 80);
 
-      // Shoes / Footwear
-      ctx.fillStyle = customization.shoesId === "shoes_hover_kicks" ? "#06b6d4" : "#111827";
-      ctx.beginPath();
-      ctx.roundRect(-25, 115, 24, 18, 4);
-      ctx.roundRect(1, 115, 24, 18, 4);
-      ctx.fill();
+      // Footwear
+      ctx.fillStyle = customization.shoesId === "shoes_cyber_boots" ? accentColor : "#111827";
+      ctx.fillRect(-30 + sinY * 5, 115, 24, 18);
+      ctx.fillRect(6 - sinY * 5, 115, 24, 18);
 
-      // Torso / Jacket
+      // 2. Torso & Armor
       ctx.fillStyle = outfitTopColor;
       ctx.beginPath();
-      ctx.roundRect(-34, -45, 68, 85, 12);
+      ctx.roundRect(-35, -45, 70, 95, 12);
       ctx.fill();
 
-      // Outfit Front Armor Decal / Zipper
-      ctx.strokeStyle = accentColor;
-      ctx.lineWidth = 4;
+      // Armor chestplate accent
+      ctx.fillStyle = accentColor;
       ctx.beginPath();
-      ctx.moveTo(0, -40);
-      ctx.lineTo(0, 35);
-      ctx.stroke();
+      ctx.moveTo(-18 * cosY, -25);
+      ctx.lineTo(0, -5);
+      ctx.lineTo(18 * cosY, -25);
+      ctx.lineTo(0, -40);
+      ctx.closePath();
+      ctx.fill();
 
-      // Arms (Posed based on poseId)
-      const isLevitating = customization.poseId === "pose_levitate";
-      const isVictory = customization.poseId === "pose_victory";
-
+      // 3. Arms & Hands
       ctx.fillStyle = outfitTopColor;
       // Left Arm
       ctx.save();
-      ctx.translate(-36, -35);
-      if (isVictory) ctx.rotate(-Math.PI * 0.75);
-      else if (isLevitating) ctx.rotate(-Math.PI * 0.25);
-      else ctx.rotate(0.1);
-      ctx.fillRect(-8, 0, 16, 75);
-      // Hand (Skin Tone)
+      ctx.translate(-38, -35);
+      ctx.rotate(0.15 + sinY * 0.1);
+      ctx.fillRect(-12, 0, 16, 75);
+      // Hand
       ctx.fillStyle = customization.skinTone;
       ctx.beginPath();
-      ctx.arc(0, 78, 8, 0, Math.PI * 2);
+      ctx.arc(-4, 82, 9, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
       // Right Arm
       ctx.save();
-      ctx.translate(36, -35);
-      if (isVictory) ctx.rotate(Math.PI * 0.75);
-      else if (isLevitating) ctx.rotate(Math.PI * 0.25);
-      else ctx.rotate(-0.1);
+      ctx.translate(38, -35);
+      ctx.rotate(-0.15 - sinY * 0.1);
       ctx.fillStyle = outfitTopColor;
-      ctx.fillRect(-8, 0, 16, 75);
-      // Hand (Skin Tone)
+      ctx.fillRect(-4, 0, 16, 75);
+      // Hand
       ctx.fillStyle = customization.skinTone;
       ctx.beginPath();
-      ctx.arc(0, 78, 8, 0, Math.PI * 2);
+      ctx.arc(4, 82, 9, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
+      // 4. Neck & Head
+      ctx.save();
+      ctx.translate(0, -45);
+      ctx.rotate(rotationX * 0.5);
+
       // Neck
       ctx.fillStyle = customization.skinTone;
-      ctx.fillRect(-10, -60, 20, 20);
-
-      // Head & Face
-      ctx.save();
-      ctx.translate(0, -85);
+      ctx.fillRect(-10, -18, 20, 20);
 
       // Head Base
-      ctx.fillStyle = customization.skinTone;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 25, 30, 0, 0, Math.PI * 2);
+      ctx.ellipse(0 * cosY, -52, 28, 34, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Eyes (Rotated by angle)
-      if (cosY > -0.3) {
-        ctx.fillStyle = "#ffffff";
+      // Facial Features (Only rendered when facing towards the camera)
+      if (cosY > -0.2) {
+        // Eyes
+        ctx.fillStyle = customization.eyeColor;
+        const eyeOffset = 11 * cosY;
         ctx.beginPath();
-        ctx.ellipse(-9 * cosY, -3, 5, 3.5, 0, 0, Math.PI * 2);
-        ctx.ellipse(9 * cosY, -3, 5, 3.5, 0, 0, Math.PI * 2);
+        ctx.arc(-eyeOffset, -54, 3.5, 0, Math.PI * 2);
+        ctx.arc(eyeOffset, -54, 3.5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Iris
-        ctx.fillStyle = customization.eyeColor;
-        ctx.beginPath();
-        ctx.arc(-9 * cosY, -3, 2.5, 0, Math.PI * 2);
-        ctx.arc(9 * cosY, -3, 2.5, 0, Math.PI * 2);
-        ctx.fill();
+        // Cyber Visor / Headwear
+        if (customization.headwearId === "head_cyber_visor") {
+          ctx.fillStyle = "rgba(6, 182, 212, 0.9)";
+          ctx.strokeStyle = "#22d3ee";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(-24 * cosY, -60, 48 * cosY, 14, 4);
+          ctx.fill();
+          ctx.stroke();
+        }
       }
 
-      // Headwear (Visor, Crown, etc.)
-      if (customization.headwearId === "head_cyber_visor") {
-        ctx.fillStyle = "rgba(6, 182, 212, 0.85)";
-        ctx.beginPath();
-        ctx.roundRect(-22 * cosY, -8, 44 * Math.abs(cosY) + 5, 12, 3);
-        ctx.fill();
-      } else if (customization.headwearId === "head_gold_crown") {
+      // Crown / Helm Headwear
+      if (customization.headwearId === "head_golden_crown") {
         ctx.fillStyle = "#fbbf24";
         ctx.beginPath();
         ctx.moveTo(-22, -26);
@@ -344,8 +355,8 @@ export function ThreeAvatarCanvas({
         className="w-full h-full cursor-grab active:cursor-grabbing block"
       />
 
-      {interactive && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-purple-500/30 text-xs text-muted-foreground pointer-events-none">
+      {displayControls && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-purple-500/30 text-xs text-muted-foreground pointer-events-none whitespace-nowrap">
           <span>Drag to rotate 360°</span>
           <span>•</span>
           <span>Scroll to zoom</span>
