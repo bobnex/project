@@ -7,9 +7,9 @@ import {
   HelpCircle,
   House,
   Settings,
-  Shield,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   Swords,
   Trophy,
   UserRound,
@@ -25,12 +25,11 @@ import { cn } from "@/lib/utils";
 import { BrandMark, BrandName } from "./Brand";
 import { CosmeticAvatar } from "./CosmeticPreview";
 import { useCosmetics } from "@/lib/cosmetics-store";
-import { ClanWarInviteListener } from "./ClanWarInviteListener";
 
 export const NAV = [
   { to: "/home", label: "Home", icon: House },
   { to: "/battle", label: "Battle", icon: Swords },
-  { to: "/clans", label: "Clans", icon: Shield },
+  { to: "/clans", label: "Studio", icon: Sparkles },
   { to: "/cbt", label: "CBT", icon: ClipboardList },
   { to: "/tournaments", label: "Cups", icon: Award },
   { to: "/rankings", label: "Rankings", icon: Trophy },
@@ -44,7 +43,8 @@ const TITLES: Record<string, string> = {
   "/home": "Home",
   "/battle": "Battle Arena",
   "/speed-demon": "Speed Demon",
-  "/clans": "Clans & War Arena",
+  "/clans": "Juvora 3D Avatar Studio",
+  "/avatar-studio": "Juvora 3D Avatar Studio",
   "/tournaments": "Tournaments",
   "/cbt": "CBT Practice",
   "/courses": "Course Directory",
@@ -55,8 +55,7 @@ const TITLES: Record<string, string> = {
   "/notifications": "Notifications",
   "/admin": "Admin Centre",
   "/help": "Help",
-  "/shop": "Cosmetics Shop",
-  "/clan-war": "Clan War Waiting Room",
+  "/shop": "Cosmetics & Avatar Shop",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -86,14 +85,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "Tournament"
       : pathname.startsWith("/cbt")
         ? "CBT Exam"
-        : pathname.startsWith("/clan-war")
-          ? "Clan War Waiting Room"
+        : pathname.startsWith("/clans") || pathname.startsWith("/avatar-studio")
+          ? "Avatar Studio"
           : "Battle");
 
   return (
     <div className="min-h-screen lg:flex">
-      <ClanWarInviteListener />
-
       {/* Desktop Sidebar */}
       <aside className="glass sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r p-4 lg:flex">
         <Link to="/home" className="mb-8 flex items-center gap-3 px-2">
