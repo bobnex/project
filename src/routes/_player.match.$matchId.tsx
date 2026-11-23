@@ -52,8 +52,7 @@ import {
   alivePlayers,
   questionMs,
   resultFor,
-  streak,
-  teamMembers,
+  teamOf,
   type Match,
   type MatchPlayer,
   type Team,
@@ -68,6 +67,19 @@ import {
 } from "@/lib/shareable-battle-card";
 
 export const Route = createFileRoute("/_player/match/$matchId")({
+  head: () => ({
+    meta: [
+      { title: "Live Battle • Juvora" },
+      {
+        name: "description",
+        content: "Compete live in head-to-head quiz battles, Duo team clashes, and high-stakes Rush mode on Juvora.",
+      },
+      { property: "og:title", content: "Live Battle • Juvora" },
+      { property: "og:description", content: "Compete live in head-to-head quiz battles on Juvora." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: MatchScreen,
 });
 
@@ -201,7 +213,7 @@ function LobbyAvatarCard({
         />
 
         {/* Status tags */}
-        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start pointer-events-none">
           {isHost && (
             <span className="bg-amber-500/90 text-black font-black flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] tracking-wider uppercase shadow-md backdrop-blur-sm">
               <Crown className="size-3 fill-black text-black" /> Host
@@ -413,6 +425,20 @@ function Countdown({ m, now }: { m: Match; now: number; uid: string }) {
   );
 }
 
+/* ---------------- Streak Calculation ---------------- */
+function computeLiveStreak(answers?: Record<string, { correct?: boolean }>, currentIndex = 0): number {
+  if (!answers) return 0;
+  let s = 0;
+  for (let i = currentIndex - 1; i >= 0; i--) {
+    if (answers[String(i)]?.correct) {
+      s++;
+    } else {
+      break;
+    }
+  }
+  return s;
+}
+
 /* ---------------- Live Battle ---------------- */
 function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Question[] }) {
   const { fb, settings, updateSettings } = useApp();
@@ -455,7 +481,7 @@ function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Que
 
   const isRevealing = m.phase === "reveal";
   const isCorrect = effectiveChoice === q.answer;
-  const streakVal = streak(p?.answers, m.currentIndex);
+  const streakVal = computeLiveStreak(p?.answers, m.currentIndex);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -510,7 +536,6 @@ function Live({ m, uid, now, qs }: { m: Match; uid: string; now: number; qs: Que
 
       {/* Question Card */}
       <div className="surface-card p-6 sm:p-8 text-center space-y-4">
-        {/* Mobile Subject Indicator */}
         <div className="flex sm:hidden justify-center gap-1.5 pb-1">
           {q.course && (
             <span className="bg-primary/10 text-primary text-[10px] font-bold uppercase px-2 py-0.5 rounded-full">
@@ -580,7 +605,7 @@ function LiveStandings({ m, uid, isDuo }: { m: Match; uid: string; isDuo: boolea
       <div className="grid grid-cols-2 gap-3">
         {(["A", "B"] as Team[]).map((t) => {
           const meta = TEAM_META[t];
-          const members = teamMembers(m, t);
+          const members = teamOf(m, t);
           const score = members.reduce((s, id) => s + (m.players[id]?.score ?? 0), 0);
           return (
             <div key={t} className={cn("surface-card p-3 rounded-xl border", meta.soft, meta.border)}>
@@ -604,7 +629,6 @@ function LiveStandings({ m, uid, isDuo }: { m: Match; uid: string; isDuo: boolea
   }
 
   const ids = alivePlayers(m);
-  const isRush = m.mode === "rush";
 
   return (
     <div className="surface-card flex items-center justify-around p-3 rounded-xl">
@@ -613,10 +637,9 @@ function LiveStandings({ m, uid, isDuo }: { m: Match; uid: string; isDuo: boolea
         const me = id === uid;
         return (
           <div key={id} className={cn("flex items-center gap-2 text-xs", me && "text-primary font-bold")}>
-            <PlayerAvatar name={p.name} size={24} />
-            <span className="max-w-[70px] truncate">{p.name}</span>
-            <span className="tabular font-black">{p.score}</span>
-            {isRush && <span className="text-destructive font-bold">{p.wrong}/{RUSH_MAX_WRONG}</span>}
+            <PlayerAvatar name={p?.name ?? "Player"} size={22} />
+            <span className="truncate max-w-[80px]">{p?.name}</span>
+            <span className="tabular font-black">{p?.score ?? 0}</span>
           </div>
         );
       })}
