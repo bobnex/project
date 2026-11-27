@@ -1,37 +1,43 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { 
+  Orbit, 
   Sparkles, 
-  Shirt, 
-  Footprints, 
-  Crown, 
   Zap, 
-  Smile, 
-  Check, 
   Palette, 
   RotateCcw, 
   Save, 
-  Coins,
-  ShoppingBag,
-  Flame,
-  ShieldCheck
+  Coins, 
+  ShoppingBag, 
+  Check, 
+  Layers, 
+  ArrowUpCircle,
+  ShieldCheck,
+  Flame
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useApp } from "@/lib/app-context";
 import { useCosmetics } from "@/lib/cosmetics-store";
 import { 
-  AVATAR_CATALOG, 
-  DEFAULT_AVATAR_CONFIG, 
-  DEFAULT_HAIR_COLORS, 
-  DEFAULT_SKIN_TONES, 
-  RARITY_COLORS, 
-  getPlayerAvatar, 
-  savePlayerAvatar, 
-  type AvatarCustomization, 
-  type AvatarCatalogItem 
-} from "@/lib/avatar";
-import { ThreeAvatarCanvas } from "@/components/avatar/ThreeAvatarCanvas";
+  DEFAULT_ORIGIN_ENTITY, 
+  ENTITY_CATALOG, 
+  EVOLUTION_STAGES, 
+  RARITY_THEMES,
+  canEntityEvolve,
+  getNextEvolutionStage,
+  type PlayerEntity, 
+  type EntityCustomization,
+  type CoreShape
+} from "@/lib/entity";
+import { 
+  loadPlayerEntities, 
+  setActivePlayerEntity, 
+  saveEntityCustomization, 
+  evolvePlayerEntity, 
+  purchaseEntityArchetype 
+} from "@/lib/entity-store";
+import { Entity3DCanvas } from "@/components/entity/Entity3DCanvas";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -39,391 +45,456 @@ import { Badge } from "@/components/ui/badge";
 export const Route = createFileRoute("/_player/avatar-studio")({
   head: () => ({
     meta: [
-      { title: "Avatar Studio — Juvora 3D" },
-      { name: "description", content: "Create and customize your signature full-body 3D Juvora avatar." },
-      { property: "og:title", content: "Juvora Avatar Studio" },
-      { property: "og:description", content: "Fortnite-inspired 3D character customization with modular outfits, hairstyles, and animations." },
+      { title: "Entity Studio — Juvora 2.0" },
+      { name: "description", content: "Customize your abstract Juvora Entity, unlock new geometric cores, and evolve your digital consciousness." },
+      { property: "og:title", content: "Juvora Entity Studio" },
+      { property: "og:description", content: "Abstract digital identities with 3D crystal geometry, particle coronas, and hybrid evolution." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: AvatarStudioPage,
+  component: EntityStudioPage,
 });
 
-export function AvatarStudioPage() {
-  const { user, profile, fb } = useApp();
+export function EntityStudioPage() {
+  const { user, fb } = useApp();
   const { wallet } = useCosmetics();
-  const navigate = useNavigate();
 
-  const [avatar, setAvatar] = useState<AvatarCustomization>(DEFAULT_AVATAR_CONFIG);
-  const [initialAvatar, setInitialAvatar] = useState<AvatarCustomization>(DEFAULT_AVATAR_CONFIG);
-  const [activeTab, setActiveTab] = useState<"body" | "hair" | "outfits" | "shoes" | "accessories" | "poses" | "vfx">("outfits");
+  const [entities, setEntities] = useState<PlayerEntity[]>([DEFAULT_ORIGIN_ENTITY]);
+  const [activeEntityId, setActiveEntityId] = useState<string>("origin");
+  const [selectedEntity, setSelectedEntity] = useState<PlayerEntity>(DEFAULT_ORIGIN_ENTITY);
+  const [customization, setCustomization] = useState<EntityCustomization>(DEFAULT_ORIGIN_ENTITY.customization);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
 
-  // Load user avatar on mount
   useEffect(() => {
     if (!fb || !user) return;
-    getPlayerAvatar(fb.db, user.uid).then((loaded) => {
-      setAvatar(loaded);
-      setInitialAvatar(loaded);
+    loadPlayerEntities(fb.db, user.uid).then((res) => {
+      setEntities(res.entities);
+      setActiveEntityId(res.activeEntityId);
+      const active = res.entities.find((e) => e.id === res.activeEntityId) || res.entities[0] || DEFAULT_ORIGIN_ENTITY;
+      setSelectedEntity(active);
+      setCustomization(active.customization);
+      setLoading(false);
     });
   }, [fb, user]);
 
-  // Track unsaved modifications
-  useEffect(() => {
-    setHasChanges(JSON.stringify(avatar) !== JSON.stringify(initialAvatar));
-  }, [avatar, initialAvatar]);
-
-  const handleSave = async () => {
-    if (!fb || !user) {
-      toast.error("Sign in to save your 3D avatar!");
-      return;
+  const handleSetActive = async (entityId: string) => {
+    if (!fb || !user) return;
+    try {
+      await setActivePlayerEntity(fb.db, user.uid, entityId);
+      setActiveEntityId(entityId);
+      const ent = entities.find((e) => e.id === entityId);
+      if (ent) {
+        setSelectedEntity(ent);
+        setCustomization(ent.customization);
+      }
+      toast.success("Active Entity updated across Juvora!");
+    } catch {
+      toast.error("Failed to activate Entity.");
     }
+  };
 
+  const handleSaveCustomization = async () => {
+    if (!fb || !user) return;
     setSaving(true);
     try {
-      await savePlayerAvatar(fb.db, user.uid, avatar);
-      setInitialAvatar(avatar);
-      setHasChanges(false);
-      toast.success("Avatar saved successfully! Visible across all battles & leaderboards.");
-    } catch (err: any) {
-      toast.error("Failed to save avatar: " + err.message);
+      await saveEntityCustomization(fb.db, user.uid, selectedEntity.id, customization);
+      setEntities((prev) =>
+        prev.map((e) => (e.id === selectedEntity.id ? { ...e, customization } : e))
+      );
+      toast.success("Entity geometry & energy harmonics saved!");
+    } catch {
+      toast.error("Failed to save customization.");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleReset = () => {
-    setAvatar(initialAvatar);
+  const handleEvolve = async () => {
+    if (!fb || !user) return;
+    try {
+      const res = await evolvePlayerEntity(fb.db, user.uid, selectedEntity);
+      if (res.success && res.newStage) {
+        toast.success(res.message);
+        setEntities((prev) =>
+          prev.map((e) => (e.id === selectedEntity.id ? { ...e, stage: res.newStage! } : e))
+        );
+        setSelectedEntity((prev) => ({ ...prev, stage: res.newStage! }));
+      } else {
+        toast.error(res.message);
+      }
+    } catch {
+      toast.error("Evolution sequence interrupted.");
+    }
   };
 
-  // Filter items by category
-  const getCatalogItems = (cat: AvatarCatalogItem["category"]) => {
-    return AVATAR_CATALOG.filter((i) => i.category === cat);
+  const handleBuyEntity = async (archetypeId: string) => {
+    if (!fb || !user) return;
+    try {
+      const res = await purchaseEntityArchetype(fb.db, user.uid, archetypeId, wallet.balance);
+      if (res.success && res.newEntity) {
+        toast.success(res.message);
+        setEntities((prev) => [...prev, res.newEntity!]);
+      } else {
+        toast.error(res.message);
+      }
+    } catch {
+      toast.error("Purchase failed.");
+    }
   };
+
+  const nextStage = getNextEvolutionStage(selectedEntity.stage);
+  const nextStageReq = nextStage ? EVOLUTION_STAGES[nextStage] : null;
+  const xpPercent = nextStageReq
+    ? Math.min(100, Math.round((selectedEntity.currentXp / nextStageReq.minXp) * 100))
+    : 100;
 
   return (
     <div className="space-y-6">
-      {/* Studio Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass p-6 rounded-2xl border border-purple-500/20">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="size-6 text-purple-400" />
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground font-display">
-              JUVORA AVATAR STUDIO
-            </h1>
+      {/* Header Banner */}
+      <div className="relative overflow-hidden rounded-3xl border border-purple-500/30 bg-gradient-to-r from-purple-950/80 via-zinc-950 to-indigo-950/80 p-6">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Badge className="bg-purple-600/30 text-purple-300 border-purple-500/40">Juvora 2.0</Badge>
+              <span className="text-xs font-mono text-zinc-400">ACTIVE: {selectedEntity.name.toUpperCase()}</span>
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-white mt-1">ENTITY STUDIO</h1>
+            <p className="text-sm text-zinc-300 max-w-xl mt-0.5">
+              Your abstract digital identity. Gain Entity XP in battles to unlock higher geometric evolution stages.
+            </p>
           </div>
-          <p className="text-muted-foreground text-sm">
-            Customize your signature 3D champion. Equippable in Battles, Tournaments, and Leaderboards.
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={handleReset}
-            disabled={!hasChanges || saving}
-            className="gap-2"
-          >
-            <RotateCcw className="size-4" /> Reset
-          </Button>
-
-          <Button
-            onClick={handleSave}
-            disabled={!hasChanges || saving}
-            className="gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/25"
-          >
-            <Save className="size-4" /> {saving ? "Saving..." : "Save Character"}
-          </Button>
+          <div className="flex items-center gap-4 bg-zinc-900/80 border border-purple-500/20 px-4 py-2.5 rounded-2xl">
+            <Coins className="size-5 text-amber-400" />
+            <div>
+              <div className="text-xs text-zinc-400">Coins Available</div>
+              <div className="text-lg font-bold text-white tabular">{wallet.balance}</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Main Studio Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: 3D Viewport */}
-        <div className="lg:col-span-6 xl:col-span-5 sticky top-20">
-          <div className="glass p-4 rounded-3xl border border-purple-500/30 relative">
-            <div className="absolute top-6 left-6 z-10 flex items-center gap-2">
-              <Badge className="bg-purple-950/80 border-purple-500 text-purple-300">
-                LIVE 3D VIEWPORT
-              </Badge>
-              {hasChanges && (
-                <Badge variant="outline" className="border-amber-500 text-amber-400 animate-pulse">
-                  Unsaved Changes
-                </Badge>
-              )}
+      {/* Main Studio Tabs */}
+      <Tabs defaultValue="my-entity" className="w-full">
+        <TabsList className="grid grid-cols-5 w-full bg-zinc-900/90 border border-purple-500/20 p-1 rounded-2xl h-auto">
+          <TabsTrigger value="my-entity" className="py-2.5 text-xs sm:text-sm font-semibold gap-1.5 data-[state=active]:bg-purple-600">
+            <Orbit className="size-4" />
+            <span>My Entity</span>
+          </TabsTrigger>
+          <TabsTrigger value="collection" className="py-2.5 text-xs sm:text-sm font-semibold gap-1.5 data-[state=active]:bg-purple-600">
+            <Layers className="size-4" />
+            <span>Collection</span>
+          </TabsTrigger>
+          <TabsTrigger value="customize" className="py-2.5 text-xs sm:text-sm font-semibold gap-1.5 data-[state=active]:bg-purple-600">
+            <Palette className="size-4" />
+            <span>Customize</span>
+          </TabsTrigger>
+          <TabsTrigger value="evolution" className="py-2.5 text-xs sm:text-sm font-semibold gap-1.5 data-[state=active]:bg-purple-600">
+            <ArrowUpCircle className="size-4" />
+            <span>Evolution</span>
+          </TabsTrigger>
+          <TabsTrigger value="store" className="py-2.5 text-xs sm:text-sm font-semibold gap-1.5 data-[state=active]:bg-purple-600">
+            <ShoppingBag className="size-4" />
+            <span>Store</span>
+          </TabsTrigger>
+        </TabsList>
+
+        {/* 1. MY ENTITY */}
+        <TabsContent value="my-entity" className="mt-6 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="lg:col-span-7">
+              <Entity3DCanvas
+                customization={customization}
+                stage={selectedEntity.stage}
+                height={420}
+                className="w-full shadow-2xl shadow-purple-950/40"
+              />
             </div>
 
-            <ThreeAvatarCanvas
-              customization={avatar}
-              interactive={true}
-              height={560}
-              className="w-full"
-            />
+            <div className="lg:col-span-5 space-y-4">
+              <div className="p-6 rounded-2xl border border-purple-500/20 bg-zinc-900/60 space-y-4">
+                <div className="flex items-center justify-between">
+                  <Badge className={`${RARITY_THEMES[selectedEntity.rarity].bg} ${RARITY_THEMES[selectedEntity.rarity].text} border ${RARITY_THEMES[selectedEntity.rarity].border}`}>
+                    {selectedEntity.rarity.toUpperCase()}
+                  </Badge>
+                  <span className="text-xs font-mono text-purple-300">
+                    {EVOLUTION_STAGES[selectedEntity.stage].name}
+                  </span>
+                </div>
 
-            {/* Quick Pose Bar */}
-            <div className="mt-4 flex items-center justify-between gap-2 overflow-x-auto p-1 bg-black/40 rounded-xl border border-border/50">
-              {getCatalogItems("pose").map((p) => {
-                const active = avatar.poseId === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => setAvatar({ ...avatar, poseId: p.id })}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                      active
-                        ? "bg-purple-600 text-white shadow-md shadow-purple-500/30"
-                        : "text-muted-foreground hover:bg-white/5"
-                    }`}
-                  >
-                    {p.name}
-                  </button>
-                );
-              })}
+                <div>
+                  <h2 className="text-xl font-bold text-white">{selectedEntity.name}</h2>
+                  <p className="text-xs text-zinc-400">{selectedEntity.title}</p>
+                </div>
+
+                {/* XP Progress Bar */}
+                <div className="space-y-1.5 pt-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-400">Entity XP</span>
+                    <span className="text-purple-300 font-mono">
+                      {selectedEntity.currentXp} {nextStageReq ? `/ ${nextStageReq.minXp}` : "(MAX)"}
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-indigo-400 transition-all duration-500"
+                      style={{ width: `${xpPercent}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-zinc-800 text-xs text-zinc-300 leading-relaxed">
+                  {EVOLUTION_STAGES[selectedEntity.stage].description}
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  {activeEntityId === selectedEntity.id ? (
+                    <Button disabled className="w-full bg-emerald-600/30 text-emerald-300 border border-emerald-500/40">
+                      <Check className="size-4 mr-2" /> Activated Everywhere
+                    </Button>
+                  ) : (
+                    <Button onClick={() => handleSetActive(selectedEntity.id)} className="w-full bg-purple-600 hover:bg-purple-700">
+                      Set As Active Entity
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </TabsContent>
 
-        {/* Right Column: Customization Drawers & Categories */}
-        <div className="lg:col-span-6 xl:col-span-7 space-y-6">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-            <TabsList className="grid grid-cols-4 sm:grid-cols-7 w-full bg-black/40 border border-purple-500/20 p-1 rounded-2xl h-auto gap-1">
-              <TabsTrigger value="outfits" className="gap-1.5 py-2.5 text-xs">
-                <Shirt className="size-4" /> Outfits
-              </TabsTrigger>
-              <TabsTrigger value="hair" className="gap-1.5 py-2.5 text-xs">
-                <Crown className="size-4" /> Hair
-              </TabsTrigger>
-              <TabsTrigger value="body" className="gap-1.5 py-2.5 text-xs">
-                <Palette className="size-4" /> Body
-              </TabsTrigger>
-              <TabsTrigger value="shoes" className="gap-1.5 py-2.5 text-xs">
-                <Footprints className="size-4" /> Shoes
-              </TabsTrigger>
-              <TabsTrigger value="accessories" className="gap-1.5 py-2.5 text-xs">
-                <ShieldCheck className="size-4" /> Gear
-              </TabsTrigger>
-              <TabsTrigger value="poses" className="gap-1.5 py-2.5 text-xs">
-                <Smile className="size-4" /> Poses
-              </TabsTrigger>
-              <TabsTrigger value="vfx" className="gap-1.5 py-2.5 text-xs">
-                <Flame className="size-4" /> Auras
-              </TabsTrigger>
-            </TabsList>
+        {/* 2. COLLECTION */}
+        <TabsContent value="collection" className="mt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {entities.map((ent) => {
+              const isActive = activeEntityId === ent.id;
+              const isSelected = selectedEntity.id === ent.id;
 
-            {/* Outfits Category */}
-            <TabsContent value="outfits" className="mt-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getCatalogItems("outfit").map((item) => {
-                  const equipped = avatar.outfitId === item.id;
-                  const rarity = RARITY_COLORS[item.rarity];
+              return (
+                <div
+                  key={ent.id}
+                  onClick={() => {
+                    setSelectedEntity(ent);
+                    setCustomization(ent.customization);
+                  }}
+                  className={`cursor-pointer p-4 rounded-2xl border transition-all ${
+                    isSelected
+                      ? "border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-900/30"
+                      : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <Badge className={`${RARITY_THEMES[ent.rarity].bg} ${RARITY_THEMES[ent.rarity].text} border ${RARITY_THEMES[ent.rarity].border} text-[10px]`}>
+                      {ent.rarity}
+                    </Badge>
+                    {isActive && (
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                        ACTIVE
+                      </span>
+                    )}
+                  </div>
 
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => setAvatar({ ...avatar, outfitId: item.id })}
-                      className={`cursor-pointer p-4 rounded-2xl border transition-all ${
-                        equipped
-                          ? "border-purple-500 bg-purple-950/30 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/20"
-                          : "border-border/60 bg-surface-card hover:border-purple-500/40"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge className={`${rarity.bg} ${rarity.text} ${rarity.border} border text-[10px] font-bold uppercase`}>
-                          {item.rarity}
-                        </Badge>
-                        {equipped && (
-                          <span className="flex items-center gap-1 text-xs text-purple-400 font-bold">
-                            <Check className="size-3.5" /> EQUIPPED
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="font-bold text-sm text-foreground">{item.name}</h3>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </TabsContent>
-
-            {/* Hair & Style Category */}
-            <TabsContent value="hair" className="mt-4 space-y-6">
-              <div>
-                <h4 className="text-sm font-semibold mb-3 text-foreground">Select Hairstyle</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {getCatalogItems("hair").map((item) => {
-                    const equipped = avatar.hairStyleId === item.id;
-                    const rarity = RARITY_COLORS[item.rarity];
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => setAvatar({ ...avatar, hairStyleId: item.id })}
-                        className={`cursor-pointer p-3 rounded-2xl border transition-all ${
-                          equipped
-                            ? "border-purple-500 bg-purple-950/30 ring-2 ring-purple-500/50"
-                            : "border-border/60 bg-surface-card hover:border-purple-500/30"
-                        }`}
-                      >
-                        <Badge className={`${rarity.bg} ${rarity.text} border ${rarity.border} text-[9px] mb-2`}>
-                          {item.rarity}
-                        </Badge>
-                        <div className="font-bold text-xs truncate">{item.name}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-sm font-semibold mb-3 text-foreground">Hair Color Tint</h4>
-                <div className="flex flex-wrap gap-2.5">
-                  {DEFAULT_HAIR_COLORS.map((hex) => (
-                    <button
-                      key={hex}
-                      onClick={() => setAvatar({ ...avatar, hairColor: hex })}
-                      className={`size-10 rounded-full border-2 transition-transform ${
-                        avatar.hairColor === hex ? "scale-110 border-white ring-2 ring-purple-500" : "border-transparent hover:scale-105"
-                      }`}
-                      style={{ backgroundColor: hex }}
-                      aria-label={hex}
+                  <div className="h-32 mb-2">
+                    <Entity3DCanvas
+                      customization={ent.customization}
+                      stage={ent.stage}
+                      height={128}
+                      interactive={false}
                     />
-                  ))}
-                </div>
-              </div>
-            </TabsContent>
+                  </div>
 
-            {/* Body & Melanin Skin Tones */}
-            <TabsContent value="body" className="mt-4 space-y-6">
+                  <h3 className="font-bold text-white text-sm">{ent.name}</h3>
+                  <p className="text-xs text-zinc-400 truncate">{ent.title}</p>
+                </div>
+              );
+            })}
+          </div>
+        </TabsContent>
+
+        {/* 3. CUSTOMIZE */}
+        <TabsContent value="customize" className="mt-6 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="lg:col-span-7">
+              <Entity3DCanvas
+                customization={customization}
+                stage={selectedEntity.stage}
+                height={400}
+                className="w-full"
+              />
+            </div>
+
+            <div className="lg:col-span-5 p-6 rounded-2xl border border-purple-500/20 bg-zinc-900/60 space-y-5">
               <div>
-                <h4 className="text-sm font-semibold mb-3 text-foreground">Melanin Skin Tone</h4>
-                <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
-                  {DEFAULT_SKIN_TONES.map((hex) => (
+                <h3 className="text-sm font-semibold text-white mb-2">Core Geometry Shape</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["octahedron", "icosahedron", "hypercube", "torus_core", "crystal_cluster", "celestial_star"] as CoreShape[]).map((shape) => (
                     <button
-                      key={hex}
-                      onClick={() => setAvatar({ ...avatar, skinTone: hex })}
-                      className={`h-12 rounded-2xl border-2 transition-all flex items-center justify-center ${
-                        avatar.skinTone === hex ? "border-purple-500 scale-105 ring-2 ring-purple-500/40" : "border-white/10 hover:border-white/40"
+                      key={shape}
+                      type="button"
+                      onClick={() => setCustomization((prev) => ({ ...prev, coreShape: shape }))}
+                      className={`text-xs p-2 rounded-xl border capitalize ${
+                        customization.coreShape === shape
+                          ? "border-purple-500 bg-purple-950 text-white font-bold"
+                          : "border-zinc-800 bg-zinc-900 text-zinc-400"
                       }`}
-                      style={{ backgroundColor: hex }}
                     >
-                      {avatar.skinTone === hex && <Check className="size-4 text-white drop-shadow-md" />}
+                      {shape.replace("_", " ")}
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* Energy Colors */}
               <div>
-                <h4 className="text-sm font-semibold mb-3 text-foreground">Eye Color</h4>
-                <div className="flex flex-wrap gap-3">
-                  {["#06b6d4", "#a855f7", "#eab308", "#10b981", "#ef4444", "#3b82f6", "#f43f5e"].map((color) => (
+                <h3 className="text-sm font-semibold text-white mb-2">Primary Energy Hue</h3>
+                <div className="flex gap-2">
+                  {["#a855f7", "#38bdf8", "#f59e0b", "#10b981", "#ef4444", "#ffffff"].map((color) => (
                     <button
                       key={color}
-                      onClick={() => setAvatar({ ...avatar, eyeColor: color })}
-                      className={`size-9 rounded-full border-2 ${
-                        avatar.eyeColor === color ? "border-white scale-110" : "border-transparent"
-                      }`}
+                      type="button"
+                      onClick={() => setCustomization((prev) => ({ ...prev, primaryColor: color }))}
                       style={{ backgroundColor: color }}
+                      className={`size-8 rounded-full border-2 transition-transform ${
+                        customization.primaryColor === color ? "scale-110 border-white" : "border-transparent"
+                      }`}
                     />
                   ))}
                 </div>
               </div>
-            </TabsContent>
 
-            {/* Shoes */}
-            <TabsContent value="shoes" className="mt-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getCatalogItems("shoes").map((item) => (
+              <div>
+                <h3 className="text-sm font-semibold text-white mb-2">Orbital Particle Density</h3>
+                <div className="grid grid-cols-4 gap-2">
+                  {(["subtle", "balanced", "intense", "hyper"] as const).map((density) => (
+                    <button
+                      key={density}
+                      type="button"
+                      onClick={() => setCustomization((prev) => ({ ...prev, particleDensity: density }))}
+                      className={`text-xs py-1.5 rounded-lg border capitalize ${
+                        customization.particleDensity === density
+                          ? "border-purple-500 bg-purple-950 text-white font-bold"
+                          : "border-zinc-800 bg-zinc-900 text-zinc-400"
+                      }`}
+                    >
+                      {density}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Button
+                onClick={handleSaveCustomization}
+                disabled={saving}
+                className="w-full bg-purple-600 hover:bg-purple-700"
+              >
+                <Save className="size-4 mr-2" /> {saving ? "Aligning Matrices..." : "Save Customization"}
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* 4. EVOLUTION */}
+        <TabsContent value="evolution" className="mt-6 space-y-6">
+          <div className="p-6 rounded-3xl border border-purple-500/20 bg-zinc-900/80">
+            <h2 className="text-xl font-bold text-white mb-1">Hybrid Evolution Chamber</h2>
+            <p className="text-xs text-zinc-400 mb-6">
+              When your Entity absorbs sufficient battle XP, you may trigger the ascension ritual to permanently mutate its visual frequency.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {(["awakened", "evolved", "ascended", "transcendent"] as const).map((stageKey, idx) => {
+                const req = EVOLUTION_STAGES[stageKey];
+                const isCurrent = selectedEntity.stage === stageKey;
+                const isUnlocked = selectedEntity.currentXp >= req.minXp;
+
+                return (
                   <div
-                    key={item.id}
-                    onClick={() => setAvatar({ ...avatar, shoesId: item.id })}
-                    className={`cursor-pointer p-4 rounded-2xl border transition-all ${
-                      avatar.shoesId === item.id
-                        ? "border-purple-500 bg-purple-950/30 ring-2 ring-purple-500/50"
-                        : "border-border/60 bg-surface-card"
+                    key={stageKey}
+                    className={`p-4 rounded-2xl border ${
+                      isCurrent
+                        ? "border-purple-500 bg-purple-950/40"
+                        : isUnlocked
+                          ? "border-zinc-700 bg-zinc-900/60"
+                          : "border-zinc-900 bg-zinc-950/40 opacity-50"
                     }`}
                   >
-                    <div className="font-bold text-sm">{item.name}</div>
-                    <div className="text-xs text-muted-foreground mt-1">{item.description}</div>
+                    <div className="text-xs font-mono text-purple-400">STAGE {idx + 1}</div>
+                    <div className="text-sm font-bold text-white mt-0.5">{req.name}</div>
+                    <div className="text-xs text-zinc-400 mt-1">Req: {req.minXp} XP</div>
+
+                    <div className="mt-3 space-y-1">
+                      {req.unlockedPerks.map((p) => (
+                        <div key={p} className="text-[10px] text-zinc-300 flex items-center gap-1">
+                          <Check className="size-3 text-purple-400" /> {p}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-            </TabsContent>
-
-            {/* Gear & Accessories */}
-            <TabsContent value="accessories" className="mt-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getCatalogItems("headwear").concat(getCatalogItems("backBling")).map((item) => {
-                  const equipped = avatar.headwearId === item.id || avatar.backBlingId === item.id;
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => {
-                        if (item.category === "headwear") {
-                          setAvatar({ ...avatar, headwearId: equipped ? undefined : item.id });
-                        } else {
-                          setAvatar({ ...avatar, backBlingId: equipped ? undefined : item.id });
-                        }
-                      }}
-                      className={`cursor-pointer p-4 rounded-2xl border transition-all ${
-                        equipped
-                          ? "border-purple-500 bg-purple-950/30 ring-2 ring-purple-500/50"
-                          : "border-border/60 bg-surface-card"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-sm">{item.name}</span>
-                        {equipped && <Badge className="bg-purple-600 text-xs">Equipped</Badge>}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{item.description}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </TabsContent>
-
-            {/* VFX Auras */}
-            <TabsContent value="vfx" className="mt-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getCatalogItems("vfx").map((item) => {
-                  const equipped = avatar.vfxAuraId === item.id;
-                  const rarity = RARITY_COLORS[item.rarity];
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => setAvatar({ ...avatar, vfxAuraId: equipped ? undefined : item.id })}
-                      className={`cursor-pointer p-4 rounded-2xl border transition-all ${
-                        equipped
-                          ? "border-rose-500 bg-rose-950/30 ring-2 ring-rose-500/50"
-                          : "border-border/60 bg-surface-card"
-                      }`}
-                    >
-                      <Badge className={`${rarity.bg} ${rarity.text} border ${rarity.border} text-[10px] mb-2`}>
-                        {item.rarity}
-                      </Badge>
-                      <div className="font-bold text-sm">{item.name}</div>
-                      <div className="text-xs text-muted-foreground mt-1">{item.description}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </TabsContent>
-          </Tabs>
-
-          {/* Quick Shop Callout */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/60 to-indigo-950/60 border border-purple-500/30 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <ShoppingBag className="size-6 text-purple-400" />
-              <div>
-                <div className="text-sm font-bold text-foreground">Want rare and mythic gear?</div>
-                <div className="text-xs text-muted-foreground">Unlock exclusive animated outfits and wings in the Shop.</div>
-              </div>
+                );
+              })}
             </div>
-            <Button size="sm" onClick={() => navigate({ to: "/shop" })} className="bg-purple-600 hover:bg-purple-500">
-              Open Shop
-            </Button>
+
+            <div className="mt-8 flex justify-center">
+              {canEntityEvolve(selectedEntity) ? (
+                <Button onClick={handleEvolve} className="px-8 py-6 text-base font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-xl shadow-purple-900/40">
+                  <Sparkles className="size-5 mr-2" /> Evolve Entity Now
+                </Button>
+              ) : (
+                <Button disabled className="px-8 bg-zinc-800 text-zinc-500">
+                  Insufficient XP for Next Evolution ({selectedEntity.currentXp} / {nextStageReq?.minXp || 3000})
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+        </TabsContent>
+
+        {/* 5. STORE */}
+        <TabsContent value="store" className="mt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {ENTITY_CATALOG.filter((a) => !entities.some((e) => e.archetypeId === a.id)).map((archetype) => (
+              <div key={archetype.id} className="p-5 rounded-3xl border border-purple-500/20 bg-zinc-900/70 space-y-4">
+                <div className="flex items-center justify-between">
+                  <Badge className={`${RARITY_THEMES[archetype.rarity].bg} ${RARITY_THEMES[archetype.rarity].text} border ${RARITY_THEMES[archetype.rarity].border}`}>
+                    {archetype.rarity.toUpperCase()}
+                  </Badge>
+                  <div className="flex items-center gap-1 text-amber-400 font-bold text-sm">
+                    <Coins className="size-4" /> {archetype.priceCoins}
+                  </div>
+                </div>
+
+                <div className="h-36">
+                  <Entity3DCanvas
+                    customization={{
+                      ...DEFAULT_ORIGIN_ENTITY.customization,
+                      coreShape: archetype.defaultShape,
+                      primaryColor: archetype.defaultPrimary,
+                      secondaryColor: archetype.defaultSecondary,
+                    }}
+                    stage="awakened"
+                    height={144}
+                    interactive={false}
+                  />
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-white text-base">{archetype.name}</h3>
+                  <p className="text-xs text-purple-300 font-mono">{archetype.title}</p>
+                  <p className="text-xs text-zinc-400 mt-2 line-clamp-2">{archetype.description}</p>
+                </div>
+
+                <Button
+                  onClick={() => handleBuyEntity(archetype.id)}
+                  className="w-full bg-purple-600 hover:bg-purple-700"
+                >
+                  Unlock Entity
+                </Button>
+              </div>
+            ))}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
