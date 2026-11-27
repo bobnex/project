@@ -6,10 +6,10 @@ import {
   Coins,
   HelpCircle,
   House,
+  Orbit,
   Settings,
   ShieldCheck,
   ShoppingBag,
-  Sparkles,
   Swords,
   Trophy,
   UserRound,
@@ -23,13 +23,12 @@ import { useApp } from "@/lib/app-context";
 import { settlePending } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 import { BrandMark, BrandName } from "./Brand";
-import { CosmeticAvatar } from "./CosmeticPreview";
 import { useCosmetics } from "@/lib/cosmetics-store";
 
 export const NAV = [
   { to: "/home", label: "Home", icon: House },
   { to: "/battle", label: "Battle", icon: Swords },
-  { to: "/clans", label: "Studio", icon: Sparkles },
+  { to: "/avatar-studio", label: "Entity", icon: Orbit },
   { to: "/cbt", label: "CBT", icon: ClipboardList },
   { to: "/tournaments", label: "Cups", icon: Award },
   { to: "/rankings", label: "Rankings", icon: Trophy },
@@ -43,8 +42,8 @@ const TITLES: Record<string, string> = {
   "/home": "Home",
   "/battle": "Battle Arena",
   "/speed-demon": "Speed Demon",
-  "/clans": "Juvora 3D Avatar Studio",
-  "/avatar-studio": "Juvora 3D Avatar Studio",
+  "/clans": "Juvora Entity Studio",
+  "/avatar-studio": "Juvora Entity Studio",
   "/tournaments": "Tournaments",
   "/cbt": "CBT Practice",
   "/courses": "Course Directory",
@@ -55,7 +54,7 @@ const TITLES: Record<string, string> = {
   "/notifications": "Notifications",
   "/admin": "Admin Centre",
   "/help": "Help",
-  "/shop": "Cosmetics & Avatar Shop",
+  "/shop": "Entity & Coin Store",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -86,7 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       : pathname.startsWith("/cbt")
         ? "CBT Exam"
         : pathname.startsWith("/clans") || pathname.startsWith("/avatar-studio")
-          ? "Avatar Studio"
+          ? "Entity Studio"
           : "Battle");
 
   return (
@@ -105,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               to={item.to}
               label={item.label}
               icon={item.icon}
-              active={pathname.startsWith(item.to)}
+              active={pathname.startsWith(item.to) || (item.to === "/avatar-studio" && pathname.startsWith("/clans"))}
             />
           ))}
           <RailLink to="/settings" label="Settings" icon={Settings} active={pathname === "/settings"} />
@@ -116,7 +115,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {profile && (
           <Link to="/profile" className="surface-card mt-auto flex items-center gap-3 p-3">
-            <CosmeticAvatar name={profile.username} wallet={wallet} size={32} />
+            <div className="relative size-8 rounded-full border border-purple-500/40 bg-purple-950/60 grid place-items-center">
+              <Orbit className="size-4 text-purple-300 animate-spin-slow" />
+            </div>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{profile.username}</div>
               <div className="text-muted-foreground text-xs">
@@ -195,7 +196,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <nav className="glass pb-safe fixed inset-x-0 bottom-0 z-40 border-t lg:hidden">
             <div className="mx-auto grid max-w-xl grid-cols-5 gap-y-1 px-1 pt-1.5">
               {NAV.slice(0, 10).map((item) => {
-                const active = pathname.startsWith(item.to);
+                const active = pathname.startsWith(item.to) || (item.to === "/avatar-studio" && pathname.startsWith("/clans"));
                 const Icon = item.icon;
 
                 return (
